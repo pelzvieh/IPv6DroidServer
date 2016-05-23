@@ -21,14 +21,18 @@ package de.flyingsnail.ipv6backwardserver.transporter;
 
 import java.io.IOException;
 import java.net.Inet4Address;
+import java.net.Inet6Address;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
+import java.util.HashMap;
 import java.util.Properties;
 import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import de.flyingsnail.ipv6droid.ayiya.AyiyaServer;
+import de.flyingsnail.ipv6droid.ayiya.ConnectionFailedException;
 import de.flyingsnail.ipv6droid.ayiya.TicTunnel;
 
 
@@ -41,6 +45,7 @@ public class TransporterStart {
   private int ipv4port;
   private DatagramChannel ipv4Channel;
   private Set<TicTunnel> tunnels;
+  private HashMap<Inet6Address, AyiyaServer> ayiyaHash;
   
   private static Logger logger = Logger.getLogger(TransporterStart.class.getName());
 
@@ -106,6 +111,14 @@ public class TransporterStart {
     
     tunnels.clear();
     tunnels.add(tunnel);
+    
+    for (TicTunnel t: tunnels) {
+      try {
+        ayiyaHash.put(t.getIpv6Endpoint(), new AyiyaServer(t));
+      } catch (ConnectionFailedException e) {
+        logger.log(Level.WARNING, "Could not create AyiyaServer for configured tunnel", e);
+      }
+    }
   }
 
   /**
@@ -123,6 +136,14 @@ public class TransporterStart {
       logger.finer("Received packet, size " + buffer.position());
       handlePacket(buffer);
     }
+  }
+
+  private void handlePacket(ByteBuffer buffer) throws IllegalArgumentException, IOException {
+    Inet6Address sender = AyiyaServer.precheckPacket(buffer.array(), buffer.arrayOffset(), buffer.limit());
+    if (sender == null)
+      return;
+    AyiyaServer ayiyaServer = ayiyaHash.get(sender);
+    ayiyaServer.write(buffer);
   }
 
 }
