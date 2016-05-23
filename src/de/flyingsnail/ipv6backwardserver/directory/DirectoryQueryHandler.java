@@ -20,7 +20,7 @@ public class DirectoryQueryHandler extends Thread {
   Socket socket;
   private BufferedReader in;
   private BufferedWriter out;
-  Logger logger = Logger.getLogger(getClass().getName());
+  private Logger logger;
   private String userName;
   private String challenge;
   static Pattern patternClientId = Pattern.compile("client TIC/draft-00 ([.\\-,:+ \\w\\d]+)/(\\S+) (\\w+)/(\\S+)");
@@ -28,6 +28,8 @@ public class DirectoryQueryHandler extends Thread {
   static Pattern patternAuth = Pattern.compile("authenticate md5 ([[a-f][0-9][A-F]]+)");
 
   public DirectoryQueryHandler(Socket socket) throws IOException {
+    logger = Logger.getLogger(getClass().getName() + "@" + toString());
+    logger.info("Constructing a new query handler for reqeust from " + socket.getRemoteSocketAddress() + "/" + socket.getPort());
     this.socket = socket;
     in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
     out = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
@@ -38,6 +40,7 @@ public class DirectoryQueryHandler extends Thread {
    */
   @Override
   public void run() {
+    logger.fine ("Starting protocol");
     try {
       protocolStepWelcome ();
       protocolStepClientIdentification ();
@@ -66,6 +69,7 @@ public class DirectoryQueryHandler extends Thread {
           writeResponse(200, "Tunnel description follows");
           // TODO  write actual tunnel data
           String id = request.substring("tunnel show ".length());
+          logger.info("Client requested details for tunnel id " + id);
           out.write("TunnelId: ");out.write(id);out.newLine();
           out.write("Type: ");out.write("ayiya");out.newLine();
           out.write("IPv6 Endpoint: ");out.write("2a02:908:1b1:8720:bae8:56ff:fe1e:4d44");out.newLine();

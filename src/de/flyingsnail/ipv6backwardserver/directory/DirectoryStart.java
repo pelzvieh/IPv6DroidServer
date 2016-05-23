@@ -69,6 +69,7 @@ public class DirectoryStart {
    */
   public DirectoryStart(int port, int backlog, InetAddress bindAddress) {
     super();
+    log.info("Creating DirectoryStart object");
     this.port = port;
     this.backlog = backlog;
     this.bindAddress = bindAddress;
