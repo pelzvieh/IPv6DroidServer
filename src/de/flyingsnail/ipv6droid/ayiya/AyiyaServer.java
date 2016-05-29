@@ -20,21 +20,17 @@
 
 package de.flyingsnail.ipv6droid.ayiya;
 
-import java.io.FileDescriptor;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.UnsupportedEncodingException;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
-import java.net.Inet4Address;
 import java.net.Inet6Address;
 import java.net.SocketAddress;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.channels.DatagramChannel;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
@@ -78,12 +74,6 @@ public class AyiyaServer {
   /** the maximum transmission unit in bytes */
   private final int mtu;
 
-  /** the maximum packet size */
-  private int maxPacketSize = 0;
-
-  /** The IPv4 address of the PoP - the only address we can send packets to. */
-  private Inet4Address ipv4Pop;
-
   /** Our IPv6 address, in other words, the IPv6 endpoint of the tunnel. */
   private Inet6Address ipv6Local;
 
@@ -91,13 +81,10 @@ public class AyiyaServer {
   private byte[] hashedPassword;
 
   /** The v4 address/port pair of the tunnel client. */
-  private SocketAddress remoteSocketAddress;
+  private SocketAddress clientSocketAddress;
 
   /** The IPv6 outgoing stream */
-  private OutputStream ipv6out = null;
-
-  /** The IPv6 incoming stream */
-  private InputStream ipv6in = null;
+  private BufferWriter ipv6out = null;
 
   /** keep track if a valid packet has been received yet. This is the final proof that the tunnel
    * is working.
@@ -124,6 +111,8 @@ public class AyiyaServer {
    */
   private Logger log;
 
+  private @NonNull DatagramChannel ipv4Channel;
+
   /**
    * Yield the time when the last packet was <b>received</b>. This gives an indication if the
    * tunnel is still alive.
@@ -147,7 +136,7 @@ public class AyiyaServer {
    * @return a boolean, true if socket is still connected
    */
   public boolean isAlive() {
-    return (ipv6out != null && ipv6in != null);
+    return (ipv6out != null);
   }
 
 
@@ -202,15 +191,15 @@ public class AyiyaServer {
    * Constructor.
    * @param tunnel the specification of the tunnel to be dealt by this.
    */
-  public AyiyaServer (TicTunnel tunnel) throws ConnectionFailedException {
+  public AyiyaServer (TicTunnel tunnel, @NonNull DatagramChannel ipv4Channel) throws ConnectionFailedException {
     log = Logger.getLogger(TAG + " ["+tunnel.getTunnelName()+"]");
     if (!tunnel.isValid() || !tunnel.isEnabled())
       throw new IllegalStateException("Invalid or disabled tunnel specification supplied to Ayiya");
     // copy the information relevant for us in local fields
-    ipv4Pop = tunnel.getIPv4Pop();
     ipv6Local = tunnel.getIpv6Endpoint();
     ipv6Pop = tunnel.getIpv6Pop();
     mtu = tunnel.getMtu();
+    this.ipv4Channel = ipv4Channel;
 
     // we only need the hash of the password
     try {
@@ -237,27 +226,27 @@ public class AyiyaServer {
   /**
    * Connect the tunnel.
    */
-  public synchronized void connect(FileDescriptor fd, SocketAddress clientSocketAddress) throws IOException, ConnectionFailedException {
-    if (ipv6out != null || ipv6in != null) {
+  public synchronized void connect(@NonNull BufferWriter ipv6out, @NonNull SocketAddress clientSocketAddress) 
+      throws IOException, ConnectionFailedException {
+    if (this.ipv6out != null) {
       throw new IllegalStateException("This AYIYA is already connected.");
     }
 
     // set up the streams
-    ipv6out = new FileOutputStream (fd);
-    ipv6in = new FileInputStream(fd);
-    remoteSocketAddress = clientSocketAddress;
+    this.ipv6out = ipv6out;
+    this.clientSocketAddress = clientSocketAddress;
 
-    log.info("Ayiya tunnel to POP IP " + ipv4Pop + "created.");
+    log.info("Ayiya tunnel to client " + clientSocketAddress + "created.");
   }
 
   /**
    * Re-Connect the tunnel, closing the existing socket
    */
-  public synchronized void reconnect(FileDescriptor fd, SocketAddress clientSocketAddress) throws IOException, ConnectionFailedException {
-    if (ipv6out == null || ipv6in == null)
+  public synchronized void reconnect(@NonNull BufferWriter ipv6out, SocketAddress clientSocketAddress) throws IOException, ConnectionFailedException {
+    if (this.ipv6out == null)
       throw new IllegalStateException("Ayiya object is closed or not initialized");
     close();
-    connect(fd, clientSocketAddress);
+    connect(ipv6out, clientSocketAddress);
   }
 
   /**
@@ -288,19 +277,19 @@ public class AyiyaServer {
   }
 
   /**
-   * Send a heartbeat to the PoP
+   * Send a heartbeat to the client
    */
   public void beat(DatagramSocket socket) throws IOException, TunnelBrokenException {
     if (ipv6out == null)
       throw new IOException("beat() called on unconnected Ayiya");
     byte[] ayiyaPacket;
     try {
-      ayiyaPacket = buildAyiyaStruct(new byte[0], OpCode.NOOP,  IPPROTO_NONE);
+      ayiyaPacket = buildAyiyaStruct(ByteBuffer.allocate(0), OpCode.NOOP,  IPPROTO_NONE);
     } catch (NoSuchAlgorithmException e) {
       log.log(Level.SEVERE, "SHA1 no longer available???", e);
       throw new TunnelBrokenException("Cannot build ayiya struct", e);
     }
-    DatagramPacket dgPacket = new DatagramPacket(ayiyaPacket, ayiyaPacket.length, socket.getRemoteSocketAddress());
+    DatagramPacket dgPacket = new DatagramPacket(ayiyaPacket, ayiyaPacket.length, clientSocketAddress);
     socket.send(dgPacket);
     lastPacketSentTime = new Date();
   }
@@ -313,8 +302,8 @@ public class AyiyaServer {
     // this should be equiv. to C bitfield behaviour in big-endian machines
   }
 
-  private byte[] buildAyiyaStruct(byte[] payload, OpCode opcode, byte nextHeader) throws NoSuchAlgorithmException {
-    byte[] retval = new byte[payload.length + OVERHEAD];
+  private byte[] buildAyiyaStruct(ByteBuffer payload, OpCode opcode, byte nextHeader) throws NoSuchAlgorithmException {
+    byte[] retval = new byte[payload.remaining() + OVERHEAD];
     ByteBuffer bb = ByteBuffer.wrap (retval);
     bb.order(ByteOrder.BIG_ENDIAN);
     MessageDigest sha1 = MessageDigest.getInstance("SHA1");
@@ -361,15 +350,13 @@ public class AyiyaServer {
    * @throws IllegalArgumentException in case that the supplied ByteBuffer is trivially invalid. Packets failing to verify
    *    signature are not flagged by Exception, but instead increase invalidPacketCounter.
    */
-  public void write(ByteBuffer bb) throws IOException, IllegalArgumentException {
-    if (ipv6in == null)
-      throw new IllegalStateException("read() called on unconnected Ayiya");
+  public void writeToIPv6(ByteBuffer bb) throws IOException, IllegalArgumentException {
+    if (ipv6out == null)
+      throw new IllegalStateException("write() called on unconnected Ayiya");
 
-    int bytecount = bb.limit();
+    int bytecount = bb.limit() - bb.position();
 
     // first check some pathological results for stability reasons
-    if (bytecount > maxPacketSize)
-      maxPacketSize = bytecount;
     if (bytecount <= OVERHEAD) {
       throw new IllegalArgumentException("received too short packet", null);
     } else if (bytecount == bb.capacity()) {
@@ -380,15 +367,13 @@ public class AyiyaServer {
     lastPacketReceivedTime = new Date();
 
     // check buffer content
-    bb.limit(bytecount);
-    bb.position(OVERHEAD);
-    if (checkValidity(bb.array(), bb.arrayOffset(), bb.limit())) {
+    if (checkValidity(bb.array(), bb.arrayOffset() + bb.position(), bb.limit() - bb.position())) {
       OpCode opCode = getSupportedOpCode(bb.array(), bb.arrayOffset(), bb.limit());
       validPacketReceived = validPacketReceived || (opCode != null);
       // note: this flag must never be reset to false!
       if (opCode == OpCode.FORWARD) {
-        ipv6out.write(bb.array(), bb.arrayOffset() + bb.position(), bytecount-bb.position());
-        ipv6out.flush();
+        bb.position(bb.position() + OVERHEAD);
+        ipv6out.write (bb);
       } else if (opCode == OpCode.ECHO_RESPONSE) {
         log.log(Level.INFO, "Received valid echo response");
       } else
@@ -500,17 +485,15 @@ public class AyiyaServer {
   }
 
   /**
-   * Reads a packet from IPv6, wraps it into a v4 datagram and returns the packet that should be written to the tunel.
-   * @param payload the payload to send (an IP packet itself...)
+   * Takes a packet read from IPv6, wraps it into a v4 datagram and returns the packet that should be written to the tunel.
+   * @param payload the ByteBuffer with the payload to send (an IP packet itself...). position() indicates the start
+   *    of the payload, limit() the end.
    * @throws IOException in case of network problems (probably temporary in nature)
    * @throws TunnelBrokenException in case that this tunnel is no longer usable and must be restarted
    */
-  public void read(DatagramSocket socket) throws IOException {
-    if (ipv6in == null)
-      throw new IllegalStateException("write(byte[]) called on unconnected Ayiya");
-
-    byte[] payload = new byte[1500];
-    ipv6in.read(payload);
+  public void writeToIPv4(ByteBuffer payload) throws IOException {
+    if (ipv6out == null)
+      throw new IllegalStateException("writeToIpv4() called on unconnected Ayiya");
 
     byte[] ayiyaPacket;
     try {
@@ -520,25 +503,47 @@ public class AyiyaServer {
       throw new IllegalStateException("Cannot build ayiya struct", e);
     }
     assert(checkValidity(ayiyaPacket, 0, ayiyaPacket.length));
-    DatagramPacket dgPacket = new DatagramPacket(ayiyaPacket, ayiyaPacket.length, remoteSocketAddress);
-    socket.send(dgPacket);
+    ByteBuffer dgPacket = ByteBuffer.wrap(ayiyaPacket);
+    ipv4Channel.send(dgPacket, clientSocketAddress);
     lastPacketSentTime = new Date();
   }
 
   private class AyiyaOutputStream extends OutputStream {
     @Override
     public void write(@NonNull byte[] buffer) throws IOException {
-      try {
-        ByteBuffer bb = ByteBuffer.wrap(buffer);
-        AyiyaServer.this.write(bb);
-      } catch (IllegalArgumentException e) {
-        throw new IOException(e);
-      }
+      this.write(buffer, 0, buffer.length);
     }
 
     @Override
     public void write(@NonNull byte[] buffer, int offset, int count) throws IOException {
-      this.write(Arrays.copyOfRange(buffer, offset, offset + count));
+      try {
+        ByteBuffer bb = ByteBuffer.wrap(buffer, offset, count);
+        AyiyaServer.this.writeToIPv4(bb);
+      } catch (IllegalArgumentException e) {
+        throw new IOException (e);
+      }
+    }
+
+    @Override
+    public void write(int i) throws IOException {
+      this.write(new byte[] {(byte)i});
+    }
+  }
+
+  private class IPv6OutputStream extends OutputStream {
+    @Override
+    public void write(@NonNull byte[] buffer) throws IOException {
+      this.write(buffer, 0, buffer.length);
+    }
+
+    @Override
+    public void write(@NonNull byte[] buffer, int offset, int count) throws IOException {
+      try {
+        ByteBuffer bb = ByteBuffer.wrap(buffer, offset, count);
+        AyiyaServer.this.writeToIPv6(bb);
+      } catch (IllegalArgumentException e) {
+        throw new IOException (e);
+      }
     }
 
     @Override
@@ -548,31 +553,27 @@ public class AyiyaServer {
   }
 
   /**
-   * Provides an OutputStream on the tunnel. Any write should give a whole tcp package to transmit.
+   * Provides an OutputStream into the tunnel. Any write should give a whole tcp package to transmit.
+   * This packet is wrapped into an AYIYA struct and transmitted via IPv4 to the client.
    * @return the OutputStream
    */
-  public OutputStream getOutputStream() {
+  public OutputStream getAyiyaOutputStream() {
     return new AyiyaOutputStream();
   }
 
   /**
-   * Close our socket. Basically that's about it.
+   * Provides an OutputStream to the big wide world of IPv6. Any write should have a whole AYIYA package to transmit.
+   * This packet is verified, unwrapped, and transmitted via IPv6 to its intended destination.
+   * @return the OutputStream
+   */
+  public OutputStream getIPv6OutputStream() {
+    return new IPv6OutputStream();
+  }
+
+  /**
+   * Delete the ipv6 output channel. Basically that's about it.
    */
   public synchronized void close() {
-    if (ipv6in != null)
-      try {
-        ipv6in.close();
-      } catch (IOException e) {
-        log.log(Level.WARNING, "Couldn't close input stream", e);
-      }
-    if (ipv6out != null) {
-      try {
-        ipv6out.close();
-      } catch (IOException e) {
-        log.log(Level.WARNING, "Couldn't close output stream", e);
-      }
-    }
-    ipv6in = null; // it's useless anyway
     ipv6out = null;
   }
 }

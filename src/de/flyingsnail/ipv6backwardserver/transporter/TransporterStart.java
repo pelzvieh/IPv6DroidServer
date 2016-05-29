@@ -25,11 +25,14 @@ import java.net.Inet6Address;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
+import java.rmi.NoSuchObjectException;
 import java.util.HashMap;
 import java.util.Properties;
 import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+
+import org.eclipse.jdt.annotation.NonNull;
 
 import de.flyingsnail.ipv6droid.ayiya.AyiyaServer;
 import de.flyingsnail.ipv6droid.ayiya.ConnectionFailedException;
@@ -84,8 +87,14 @@ public class TransporterStart {
    */
   private void run() {
     try {
+      ipv4Channel = DatagramChannel.open();
+      ipv4Channel.bind(new InetSocketAddress(ipv4pop, ipv4port));
+      logger.info("Listening for udp packets on " + ipv4pop + ":" + ipv4port);
+
       readTunnelSet();
-      handleIPv4Input();
+      
+      Thread ip4Thread = new Thread(new IPv4InputHandler(this, ipv4Channel), "IPv4 consumer");
+      ip4Thread.start();
     } catch (IOException e) {
       logger.log(Level.WARNING, "IOException caught in transporter", e);
     }
@@ -114,36 +123,18 @@ public class TransporterStart {
     
     for (TicTunnel t: tunnels) {
       try {
-        ayiyaHash.put(t.getIpv6Endpoint(), new AyiyaServer(t));
+        ayiyaHash.put(t.getIpv6Endpoint(), new AyiyaServer(t, ipv4Channel));
       } catch (ConnectionFailedException e) {
         logger.log(Level.WARNING, "Could not create AyiyaServer for configured tunnel", e);
       }
     }
   }
 
-  /**
-   * 
-   * @throws IOException in case of failure to open the IPv4 input channel.
-   */
-  private void handleIPv4Input() throws IOException {
-    ipv4Channel = DatagramChannel.open();
-    ipv4Channel.bind(new InetSocketAddress(ipv4pop, ipv4port));
-    logger.info("Listening for udp packets on " + ipv4pop + ":" + ipv4port);
-    ByteBuffer buffer = ByteBuffer.allocate(1500);
-    while (ipv4Channel.isOpen()) {
-      buffer.clear();
-      ipv4Channel.receive(buffer);
-      logger.finer("Received packet, size " + buffer.position());
-      handlePacket(buffer);
-    }
-  }
-
-  private void handlePacket(ByteBuffer buffer) throws IllegalArgumentException, IOException {
-    Inet6Address sender = AyiyaServer.precheckPacket(buffer.array(), buffer.arrayOffset(), buffer.limit());
-    if (sender == null)
-      return;
-    AyiyaServer ayiyaServer = ayiyaHash.get(sender);
-    ayiyaServer.write(buffer);
+  public @NonNull AyiyaServer getServer(@NonNull Inet6Address sender) throws NoSuchObjectException {
+    AyiyaServer matching = ayiyaHash.get(sender);
+    if (matching == null)
+      throw new NoSuchObjectException(sender.toString());
+    return matching;
   }
 
 }
