@@ -21,6 +21,7 @@ package de.flyingsnail.ipv6backwardserver.transporter;
 
 import java.io.IOException;
 import java.net.Inet6Address;
+import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
 import java.util.logging.Level;
@@ -29,6 +30,8 @@ import java.util.logging.Logger;
 import org.eclipse.jdt.annotation.NonNull;
 
 import de.flyingsnail.ipv6droid.ayiya.AyiyaServer;
+import de.flyingsnail.ipv6droid.ayiya.BufferWriter;
+import de.flyingsnail.ipv6droid.ayiya.ConnectionFailedException;
 
 
 /**
@@ -38,13 +41,15 @@ import de.flyingsnail.ipv6droid.ayiya.AyiyaServer;
  *
  */
 public class IPv4InputHandler implements Runnable {
-  private @NonNull TransporterStart ayiyaData;
+  private @NonNull AyiyaData ayiyaData;
   private @NonNull DatagramChannel ipv4Channel;
   Logger logger = Logger.getLogger(getClass().getName());
+  private @NonNull BufferWriter ipv6out;
 
-  public IPv4InputHandler(@NonNull TransporterStart ayiyaData, @NonNull DatagramChannel ipv4Channel) {
+  public IPv4InputHandler(@NonNull AyiyaData ayiyaData, @NonNull DatagramChannel ipv4Channel, @NonNull BufferWriter ipv6out) {
     this.ayiyaData = ayiyaData;
     this.ipv4Channel = ipv4Channel;
+    this.ipv6out = ipv6out;
   }
 
   /* (non-Javadoc)
@@ -57,16 +62,16 @@ public class IPv4InputHandler implements Runnable {
     while (ipv4Channel.isOpen()) {
       try {
         buffer.clear();
-        ipv4Channel.receive(buffer);
+        SocketAddress clientAddress = ipv4Channel.receive(buffer);
         logger.finer("Received packet, size " + buffer.position());
-        handleAyiyaPacket(buffer);
+        handleAyiyaPacket(buffer, clientAddress);
       } catch (Exception e) {
         logger.log(Level.WARNING, "Exception in IPv4 reader thread", e);
       }
     }
   }
 
-  private void handleAyiyaPacket(ByteBuffer buffer) throws IllegalArgumentException, IOException {
+  private void handleAyiyaPacket(ByteBuffer buffer, SocketAddress clientAddress) throws IllegalArgumentException, IOException, ConnectionFailedException {
     Inet6Address sender = AyiyaServer.precheckPacket(buffer.array(), buffer.arrayOffset(), buffer.limit());
     if (sender == null)
       return;
@@ -75,6 +80,10 @@ public class IPv4InputHandler implements Runnable {
       logger.warning("Unsupported IPv6 address referred from incoming Ayiya packet: " + sender);
       return;
     }
+    if (!ayiyaServer.isConnected())
+      ayiyaServer.connect(ipv6out, clientAddress);
+    if (!ayiyaServer.getClientAddress().equals(clientAddress))
+      ayiyaServer.reconnect(ipv6out, clientAddress);
     ayiyaServer.writeToIPv6(buffer);
   }
 

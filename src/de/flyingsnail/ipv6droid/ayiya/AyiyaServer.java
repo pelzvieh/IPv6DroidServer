@@ -248,6 +248,14 @@ public class AyiyaServer {
     close();
     connect(ipv6out, clientSocketAddress);
   }
+  
+  /**
+   * Tell if this AyiyaServer is connected.
+   * @return boolean, true if connected.
+   */
+  public boolean isConnected() {
+    return (this.ipv6out != null);
+  }
 
   /**
    * Tell if a valid response has already been received by this instance.
@@ -575,5 +583,11 @@ public class AyiyaServer {
    */
   public synchronized void close() {
     ipv6out = null;
+  }
+
+  public SocketAddress getClientAddress() {
+    if (!isConnected())
+      throw new IllegalStateException ("This AyiyaServer is not connected, you cannot query its client address");
+    return clientSocketAddress;
   }
 }

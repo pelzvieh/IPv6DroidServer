@@ -23,7 +23,6 @@ import java.io.IOException;
 import java.net.Inet4Address;
 import java.net.Inet6Address;
 import java.net.InetSocketAddress;
-import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
 import java.rmi.NoSuchObjectException;
 import java.util.HashMap;
@@ -43,7 +42,7 @@ import de.flyingsnail.ipv6droid.ayiya.TicTunnel;
  * @author pelzi
  *
  */
-public class TransporterStart {
+public class TransporterStart implements AyiyaData {
   private Inet4Address ipv4pop;
   private int ipv4port;
   private DatagramChannel ipv4Channel;
@@ -92,9 +91,14 @@ public class TransporterStart {
       logger.info("Listening for udp packets on " + ipv4pop + ":" + ipv4port);
 
       readTunnelSet();
-      
-      Thread ip4Thread = new Thread(new IPv4InputHandler(this, ipv4Channel), "IPv4 consumer");
+      IPv6InputHandler ipv6InputHandler = new IPv6InputHandler(this, "tun0");
+      Thread ip4Thread = new Thread(new IPv4InputHandler(this, ipv4Channel, ipv6InputHandler), "IPv4 consumer");
+      Thread ip6Thread = new Thread(ipv6InputHandler, "IPv6 consumer");
+      ip4Thread.setDaemon(false);
+      ip6Thread.setDaemon(false);
       ip4Thread.start();
+      ip6Thread.start();
+      
     } catch (IOException e) {
       logger.log(Level.WARNING, "IOException caught in transporter", e);
     }
@@ -130,6 +134,10 @@ public class TransporterStart {
     }
   }
 
+  /* (non-Javadoc)
+   * @see de.flyingsnail.ipv6backwardserver.transporter.AyiyaData#getServer(java.net.Inet6Address)
+   */
+  @Override
   public @NonNull AyiyaServer getServer(@NonNull Inet6Address sender) throws NoSuchObjectException {
     AyiyaServer matching = ayiyaHash.get(sender);
     if (matching == null)
