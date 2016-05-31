@@ -56,9 +56,6 @@ public class AyiyaServer {
    */
   public static final String VERSION = "draft-02-subset";
 
-  /** Tag for Logger */
-  private static final String TAG = AyiyaServer.class.getName();
-
   // @todo I'm afraid I missed an official source for this kind of constants
   private static final byte IPPROTO_IPv6 = 41;
   private static final byte IPPROTO_NONE = 59;
@@ -110,8 +107,13 @@ public class AyiyaServer {
    * Our Logger.
    */
   private Logger log;
+  private static final Logger staticlog = Logger.getLogger(AyiyaServer.class.getName());
 
+  /**
+   * A DatagramChannel representing the IPv4 UDP communication.
+   */
   private @NonNull DatagramChannel ipv4Channel;
+
 
   /**
    * Yield the time when the last packet was <b>received</b>. This gives an indication if the
@@ -191,10 +193,10 @@ public class AyiyaServer {
    * Constructor.
    * @param tunnel the specification of the tunnel to be dealt by this.
    */
-  public AyiyaServer (TicTunnel tunnel, @NonNull DatagramChannel ipv4Channel) throws ConnectionFailedException {
-    log = Logger.getLogger(TAG + " ["+tunnel.getTunnelName()+"]");
+  public AyiyaServer (@NonNull TicTunnel tunnel, @NonNull DatagramChannel ipv4Channel) throws ConnectionFailedException {
     if (!tunnel.isValid() || !tunnel.isEnabled())
       throw new IllegalStateException("Invalid or disabled tunnel specification supplied to Ayiya");
+    log = Logger.getLogger(getClass().getName() + "."+tunnel.getTunnelId());
     // copy the information relevant for us in local fields
     ipv6Local = tunnel.getIpv6Endpoint();
     ipv6Pop = tunnel.getIpv6Pop();
@@ -236,7 +238,7 @@ public class AyiyaServer {
     this.ipv6out = ipv6out;
     this.clientSocketAddress = clientSocketAddress;
 
-    log.info("Ayiya tunnel to client " + clientSocketAddress + "created.");
+    log.info("Ayiya tunnel to client " + clientSocketAddress + " created.");
   }
 
   /**
@@ -326,8 +328,7 @@ public class AyiyaServer {
     // 5th-8th byte: epoch time
     putInt((int) ((new Date().getTime()) / 1000l)).
     // 9th-24th byte: Identity
-    put(ipv6Local.getAddress())
-    ;
+    put(ipv6Local.getAddress());
 
     // update the message digest with the bytes so far
     int hashStart = bb.position();
@@ -339,7 +340,9 @@ public class AyiyaServer {
 
     // now hash and buffer content diverge. We need to calculate the hash first, because it goes here
     sha1.update(hashedPassword);
+    payload.mark();
     sha1.update(payload);
+    payload.reset();
     byte[] hash = sha1.digest();
     assert(hash.length == 20);
 
@@ -365,7 +368,7 @@ public class AyiyaServer {
     int bytecount = bb.limit() - bb.position();
 
     // first check some pathological results for stability reasons
-    if (bytecount <= OVERHEAD) {
+    if (bytecount < OVERHEAD) {
       throw new IllegalArgumentException("received too short packet", null);
     } else if (bytecount == bb.capacity()) {
       log.log(Level.WARNING, "WARNING: maximum size of buffer reached - indication of a MTU problem");
@@ -382,8 +385,8 @@ public class AyiyaServer {
       if (opCode == OpCode.FORWARD) {
         bb.position(bb.position() + OVERHEAD);
         ipv6out.write (bb);
-      } else if (opCode == OpCode.ECHO_RESPONSE) {
-        log.log(Level.INFO, "Received valid echo response");
+      } else if (opCode == OpCode.NOOP) {
+        log.log(Level.INFO, "Received valid NOOP request");
       } else
         invalidPacketCounter++;
     } else {
@@ -393,7 +396,7 @@ public class AyiyaServer {
 
   private static OpCode getSupportedOpCode (byte[] packet, int offset, int bytecount) {
     if (bytecount < 3) {
-      Logger.getLogger(TAG).log(Level.WARNING, "Received too short package");
+      staticlog.log(Level.WARNING, "Received too short package");
       return null;
     }
 
@@ -414,10 +417,9 @@ public class AyiyaServer {
    * @return Inet6Address of the tunnel to which this packet is related, null otherwise
    */
   public static Inet6Address precheckPacket (byte[] packet, int offset, int bytecount) {
-    Logger log = Logger.getLogger(TAG);
     // check if the size includes at least a full ayiya header
     if (bytecount < OVERHEAD) {
-      log.log(Level.WARNING, "Received too short package, skipping");
+      staticlog.log(Level.WARNING, "Received too short package, skipping");
       return null;
     }
 
@@ -428,7 +430,7 @@ public class AyiyaServer {
         (getSupportedOpCode(packet, offset, bytecount) == null) ||
         ((packet[3+offset] != IPPROTO_IPv6) && (packet[3+offset] != IPPROTO_NONE))
         ) {
-      log.log(Level.WARNING, "Received packet with invalid ayiya header, skipping");
+      staticlog.log(Level.WARNING, "Received packet with invalid ayiya header, skipping");
       return null;
     }
 
@@ -437,7 +439,7 @@ public class AyiyaServer {
     int epochTimeRemote = bb.getInt();
     int epochTimeLocal = (int) (new Date().getTime() / 1000);
     if (Math.abs(epochTimeLocal - epochTimeRemote) > MAX_TIME_OFFSET) {
-      log.log(Level.WARNING, "Received packet from " + (epochTimeLocal-epochTimeRemote) + " in the past");
+      staticlog.log(Level.WARNING, "Received packet from " + (epochTimeLocal-epochTimeRemote) + " in the past");
       return null;
     }
     
@@ -446,7 +448,7 @@ public class AyiyaServer {
     try {
       sender = (Inet6Address)Inet6Address.getByAddress(Arrays.copyOfRange(packet, 8+offset, 24+offset));
     } catch (UnknownHostException e) {
-      log.log(Level.SEVERE, "UnknownHostException when converting a byte array to Inet6Address", e);
+      staticlog.log(Level.SEVERE, "UnknownHostException when converting a byte array to Inet6Address", e);
     }
 
     return sender;

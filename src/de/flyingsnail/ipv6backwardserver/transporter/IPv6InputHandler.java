@@ -27,6 +27,7 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.Inet6Address;
 import java.nio.ByteBuffer;
+import java.rmi.NoSuchObjectException;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -110,22 +111,27 @@ public class IPv6InputHandler implements Runnable, BufferWriter {
   public void run() {
     logger.info("Listening for IPv6 packets");
     ByteBuffer buffer = ByteBuffer.allocate(1500);
-    byte[] lengthBytes = new byte[2];
+    ByteBuffer lengthBytes = ByteBuffer.allocate(2);
     while (tunPipe.isAlive()) {
       InputStream ipv6Stream = tunPipe.getInputStream();
       try {
         // tuntopipe writes two bytes length information
-        ipv6Stream.read(lengthBytes);
-        int length = lengthBytes[0] * 16 + lengthBytes[1];
+        lengthBytes.clear();
+        ipv6Stream.read(lengthBytes.array(), lengthBytes.arrayOffset(), 2);
+        lengthBytes.limit(2);
+        short length = lengthBytes.getShort();
         buffer.clear();
-        if (length < 40 || length > buffer.capacity())
-          throw new IllegalStateException("Got illegal length information - probably lost stream sync");
+        if (length < 40 || length > buffer.capacity()) {
+          ipv6Stream.close();
+          throw new IllegalStateException("Got illegal length information - probably lost stream sync: 0x" + 
+                        String.format("%4x", length));
+        }
         buffer.limit(buffer.position() + length);
         ipv6Stream.read(buffer.array(), buffer.arrayOffset() + buffer.position(), buffer.remaining());
         logger.finer("Received packet, size " + length);
         handleIPv6Packet(buffer);
       } catch (Exception e) {
-        logger.log(Level.WARNING, "Exception in IPv4 reader thread", e);
+        logger.log(Level.WARNING, "Exception in IPv6 reader thread", e);
       }
     }
   }
@@ -140,7 +146,8 @@ public class IPv6InputHandler implements Runnable, BufferWriter {
    */
   private void handleIPv6Packet(ByteBuffer buffer) throws IOException {
     buffer.mark();
-    if (buffer.get() != 6) {
+    byte version = (byte)((buffer.get() >> 4) & 0xf); // die 4 ersten bits des Packets sollen die IP-Version sein
+    if (version != 6) {
       logger.warning("Received non IPv6 packet - discarding");
       return;
     }
@@ -150,9 +157,11 @@ public class IPv6InputHandler implements Runnable, BufferWriter {
     buffer.get (addr);
     buffer.reset();
     Inet6Address receiver = (Inet6Address) Inet6Address.getByAddress(addr);
-    AyiyaServer ayiyaServer = ayiyaData.getServer(receiver);
-    if (ayiyaServer == null) {
-      logger.warning("Unsupported IPv6 address referred from incoming IPv6 packet: " + receiver);
+    AyiyaServer ayiyaServer;
+    try {
+      ayiyaServer = ayiyaData.getServer(receiver);
+    } catch (NoSuchObjectException e) {
+      logger.log(Level.WARNING, "Unsupported IPv6 address referred from incoming IPv6 packet: {0}", receiver);
       return;
     }
     if (ayiyaServer.isConnected())
@@ -175,6 +184,7 @@ public class IPv6InputHandler implements Runnable, BufferWriter {
       os.write (len);
       // write the packet
       os.write(bb.array(), bb.arrayOffset() + bb.position(), bb.remaining());
+      os.flush();
     }
   }
 

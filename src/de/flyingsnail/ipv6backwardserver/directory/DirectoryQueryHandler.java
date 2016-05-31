@@ -62,7 +62,6 @@ public class DirectoryQueryHandler extends Thread {
           // TODO iterate over actual tunnel list
           out.write("200 tunnel list goes here\n");
           out.write("007 ein Tunnel\n");
-          out.write("137 noch ein Tunnel\n");
           out.write("202\n");
           out.flush();
         } else if (request.startsWith("tunnel show ")) {
@@ -72,12 +71,12 @@ public class DirectoryQueryHandler extends Thread {
           logger.info("Client requested details for tunnel id " + id);
           out.write("TunnelId: ");out.write(id);out.newLine();
           out.write("Type: ");out.write("ayiya");out.newLine();
-          out.write("IPv6 Endpoint: ");out.write("2a02:908:1b1:8720:bae8:56ff:fe1e:4d44");out.newLine();
-          out.write("IPv6 PoP: ");out.write("2a02:908:1b1:8720:21f:d0ff:feb3:5521");out.newLine();
+          out.write("IPv6 Endpoint: ");out.write("2a06:1c40:c1::2");out.newLine();
+          out.write("IPv6 PoP: ");out.write("2a06:1c40:c1::1");out.newLine();
           out.write("IPv6 PrefixLength: ");out.write("64");out.newLine();
           out.write("PoP Name: ");out.write("Flying Snail");out.newLine();
           //out.write("IPv4 Endpoint: ");out.write("192.168.1.4");out.newLine();
-          out.write("IPv4 PoP: ");out.write("192.168.1.4");out.newLine();
+          out.write("IPv4 PoP: ");out.write("192.168.1.135");out.newLine();
           out.write("UserState: ");out.write("enabled");out.newLine();
           out.write("AdminState: ");out.write("enabled");out.newLine();
           out.write("Password: ");out.write("geheim");out.newLine();

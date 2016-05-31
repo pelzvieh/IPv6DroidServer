@@ -33,9 +33,6 @@ import java.util.logging.Logger;
  * Created by pelzi on 17.08.13.
  */
 public class TicTunnel implements Serializable {
-  /** The tag to identify logger. */
-  private static final String TAG = TicTunnel.class.getSimpleName();
-
   /** the id to use in tic queries */
   private String id;
 
@@ -117,12 +114,15 @@ public class TicTunnel implements Serializable {
   /** The timestamp of this tunnel's creation */
   private Date creationDate = new Date();
 
+  private Logger logger;
+
   /**
    * Constructor. All attributes apart from id created null.
    * @param id a String representing the id to use for querying the tic.
    */
   public TicTunnel(String id) {
     this.id = id;
+    logger = Logger.getLogger(getClass().getName()+ "." + id);
   }
 
   public Inet4Address getIPv4Pop() {
@@ -290,7 +290,7 @@ public class TicTunnel implements Serializable {
 
       return true; // if we're here, some method call succeeded.
     } catch (UnknownHostException e) {
-      Logger.getLogger(TAG).log(Level.WARNING, "unable to resolve string intended to be an address: " + value);
+      logger .log(Level.WARNING, "unable to resolve string intended to be an address: " + value);
       return false;
     }
 

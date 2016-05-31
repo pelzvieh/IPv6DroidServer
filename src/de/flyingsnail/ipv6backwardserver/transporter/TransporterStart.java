@@ -26,6 +26,7 @@ import java.net.InetSocketAddress;
 import java.nio.channels.DatagramChannel;
 import java.rmi.NoSuchObjectException;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Properties;
 import java.util.Set;
 import java.util.logging.Level;
@@ -68,6 +69,7 @@ public class TransporterStart implements AyiyaData {
       ts.run();
     } catch (Throwable t) {
       logger.log(Level.SEVERE, "Uncaught error in main, server process is aborting", t);
+      System.exit(1);
     }
   }
 
@@ -79,6 +81,8 @@ public class TransporterStart implements AyiyaData {
     super();
     this.ipv4pop = ipv4pop;
     this.ipv4port = ipv4port;
+    this.tunnels = new HashSet<TicTunnel>();
+    this.ayiyaHash = new HashMap<Inet6Address, AyiyaServer>();
   }
 
   /**
@@ -94,19 +98,35 @@ public class TransporterStart implements AyiyaData {
       IPv6InputHandler ipv6InputHandler = new IPv6InputHandler(this, "tun0");
       Thread ip4Thread = new Thread(new IPv4InputHandler(this, ipv4Channel, ipv6InputHandler), "IPv4 consumer");
       Thread ip6Thread = new Thread(ipv6InputHandler, "IPv6 consumer");
-      ip4Thread.setDaemon(false);
-      ip6Thread.setDaemon(false);
+      ip4Thread.setDaemon(true);
+      ip6Thread.setDaemon(true);
       ip4Thread.start();
       ip6Thread.start();
-      
+      monitorThreads (new Thread[] {ip4Thread, ip6Thread});
     } catch (IOException e) {
       logger.log(Level.WARNING, "IOException caught in transporter", e);
     }
   }
 
+  private void monitorThreads(Thread[] threads) {
+    while (true)
+      for (Thread thread: threads) {
+        try {
+          thread.join(10000);
+        } catch (InterruptedException e) {
+          logger.log(Level.SEVERE, "Interrupt in main thread");
+          System.exit(2);
+        }
+        if (!thread.isAlive()) {
+          logger.log(Level.SEVERE, "Thread {0} has died, will terminate", thread.getName());
+          System.exit(3);
+        }
+      }
+  }
+
   private void readTunnelSet() throws IOException {
     Properties config = new Properties();
-    config.load(TransporterStart.class.getResourceAsStream("/de/flyingsnail/ipv6backwardserver/tunnel.properties"));
+    config.load(TransporterStart.class.getResourceAsStream("/de/flyingsnail/ipv6backwardserver/tunnels.properties"));
     TicTunnel tunnel = new TicTunnel(config.getProperty("TunnelId"));
 
     tunnel.setType (config.getProperty("Type"));
@@ -114,7 +134,7 @@ public class TransporterStart implements AyiyaData {
     tunnel.setIpv6Pop (config.getProperty("IPv6PoP"));
     tunnel.setPrefixLength (Integer.valueOf(config.getProperty("IPv6PrefixLength")));
     tunnel.setPopName (config.getProperty("PoPName"));
-    tunnel.setIPv4Pop (ipv4pop.toString());
+    tunnel.setIPv4Pop (ipv4pop.getHostAddress());
     tunnel.setUserState (config.getProperty("UserState"));
     tunnel.setAdminState (config.getProperty("AdminState"));
     tunnel.setPassword (config.getProperty("Password"));

@@ -43,7 +43,7 @@ import de.flyingsnail.ipv6droid.ayiya.ConnectionFailedException;
 public class IPv4InputHandler implements Runnable {
   private @NonNull AyiyaData ayiyaData;
   private @NonNull DatagramChannel ipv4Channel;
-  Logger logger = Logger.getLogger(getClass().getName());
+  private Logger logger = Logger.getLogger(getClass().getName());
   private @NonNull BufferWriter ipv6out;
 
   public IPv4InputHandler(@NonNull AyiyaData ayiyaData, @NonNull DatagramChannel ipv4Channel, @NonNull BufferWriter ipv6out) {
@@ -64,6 +64,8 @@ public class IPv4InputHandler implements Runnable {
         buffer.clear();
         SocketAddress clientAddress = ipv4Channel.receive(buffer);
         logger.finer("Received packet, size " + buffer.position());
+        buffer.limit(buffer.position());
+        buffer.position(0);
         handleAyiyaPacket(buffer, clientAddress);
       } catch (Exception e) {
         logger.log(Level.WARNING, "Exception in IPv4 reader thread", e);
