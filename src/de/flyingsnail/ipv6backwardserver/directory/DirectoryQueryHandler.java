@@ -5,9 +5,12 @@ import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
+import java.io.UnsupportedEncodingException;
 import java.math.BigInteger;
 import java.net.Inet4Address;
 import java.net.Socket;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.Date;
 import java.util.logging.Level;
@@ -16,6 +19,12 @@ import java.util.regex.MatchResult;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import javax.persistence.NoResultException;
+import javax.persistence.TypedQuery;
+import javax.persistence.criteria.CriteriaBuilder;
+import javax.persistence.criteria.CriteriaQuery;
+import javax.persistence.criteria.Root;
+
 public class DirectoryQueryHandler extends Thread {
   Socket socket;
   private BufferedReader in;
@@ -23,14 +32,17 @@ public class DirectoryQueryHandler extends Thread {
   private Logger logger;
   private String userName;
   private String challenge;
+  private DirectoryData directoryData;
+  private String response;
   static Pattern patternClientId = Pattern.compile("client TIC/draft-00 ([.\\-,:+ \\w\\d]+)/(\\S+) (\\w+)/(\\S+)");
   static Pattern patternUsername = Pattern.compile("username ([.\\-+\\w\\d]+)");
   static Pattern patternAuth = Pattern.compile("authenticate md5 ([[a-f][0-9][A-F]]+)");
 
-  public DirectoryQueryHandler(Socket socket) throws IOException {
+  public DirectoryQueryHandler(Socket socket, DirectoryData directoryData) throws IOException {
     logger = Logger.getLogger(getClass().getName() + "@" + toString());
     logger.info("Constructing a new query handler for reqeust from " + socket.getRemoteSocketAddress() + "/" + socket.getPort());
     this.socket = socket;
+    this.directoryData = directoryData;
     in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
     out = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
   }
@@ -210,14 +222,56 @@ public class DirectoryQueryHandler extends Thread {
     String request = readRequest();
     Matcher matcher = patternAuth.matcher(request);
     if (matcher.matches()) {
-      challenge = matcher.group(1);
+      response = matcher.group(1);
       logger.info("client presented response to md5 challenge");
-      // @todo implement check of md5 challenge
-      logger.warning("Required to implement actual check of response!!");
+      checkCredentials();
       writeResponse(200, "Welcome " + userName);
     } else {
       throw new IllegalRequest("client did not send a response to md5 challenge: " + request);
     }
+  }
+
+  private void checkCredentials() throws IllegalRequest {
+    // try to read the indicated user from our database
+    User u;
+    String password;
+    // try if the user exists
+    // !! it is important that this check does not have a noticeable impact on runtime !!
+    try {
+      u = getUserFromDatabase(userName);
+      password = u.getPassword();
+    } catch (NoResultException e) {
+      logger.log(Level.WARNING, "Illegal login attempt of non-existing user {0}", userName);
+      u = null;
+      password = "Unsinn, gegen den geprüft wird, wenn es den User nicht gibt";
+    }
+    // try to verify the given MD5 response
+    String signature;
+    try {
+        // actually, the algorithm is a bit strange...
+        MessageDigest md5 = MessageDigest.getInstance("MD5");
+        byte[] pwDigest = md5.digest(password.getBytes("UTF-8"));
+        String pwDigestString = String.format("%032x", new BigInteger(1, pwDigest));
+        // ... as we don't use this as a digest, but the bytes from its hexdump string =8-O
+        pwDigest = pwDigestString.getBytes("UTF-8");
+
+        // now let's calculate the response to the challenge
+        md5.reset();
+        md5.update(challenge.getBytes("UTF-8")); // probably the challenge is already hexdumped by the server
+        md5.update(pwDigest);
+        byte[] authDigest = md5.digest();
+        // the auth response is just the hex representation of the digest
+        signature = String.format("%032x", new BigInteger(1, authDigest));
+    } catch (NoSuchAlgorithmException e) {
+        throw new IllegalStateException("MD5 algorithm not available on this server", e);
+    } catch (UnsupportedEncodingException e) {
+        throw new IllegalStateException("UTF-8 encoding not available on this server", e);
+    }
+    
+    if (u == null)
+      throw new IllegalRequest ("Attempt to log in with a non-existing user");
+    if (!signature.equals(response))
+      throw new IllegalRequest ("User response to challenge does not match");
   }
 
   /**
@@ -245,4 +299,17 @@ public class DirectoryQueryHandler extends Thread {
     out.newLine();
     out.flush();
   }
+  
+  
+  private User getUserFromDatabase(String userId) throws NoResultException {
+    CriteriaBuilder cb = directoryData.getCriteriaBuilder();
+    CriteriaQuery<User> criteriaQuery = cb.createQuery(User.class);
+    Root<User> user = criteriaQuery.from(User.class);
+    criteriaQuery.where(cb.equal(user.get(User_.username), userId));
+    TypedQuery<User> query = directoryData.getEntityManager().createQuery(criteriaQuery);
+    User result = query.getSingleResult();
+    return result;
+  }
+
+
 }

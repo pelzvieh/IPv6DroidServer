@@ -30,6 +30,10 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import javax.net.ServerSocketFactory;
+import javax.persistence.EntityManager;
+import javax.persistence.Persistence;
+import javax.persistence.Query;
+import javax.persistence.criteria.CriteriaBuilder;
 
 /**
  * This creates the server sockets to recieve directory requests and the working 
@@ -38,7 +42,7 @@ import javax.net.ServerSocketFactory;
  * @author pelzi
  *
  */
-public class DirectoryStart {
+public class DirectoryStart implements DirectoryData {
 
   private int port;
   private int backlog;
@@ -47,6 +51,9 @@ public class DirectoryStart {
   
   ExecutorService execService;
   
+  // persistence-related handlers
+  private final EntityManager entityManager;
+  private final CriteriaBuilder criteriaBuilder;
   
 
   /**
@@ -74,6 +81,13 @@ public class DirectoryStart {
     this.backlog = backlog;
     this.bindAddress = bindAddress;
     this.execService = Executors.newFixedThreadPool(10);
+    this.entityManager = Persistence.createEntityManagerFactory("IPv6BackwardServer").
+        createEntityManager();
+    this.criteriaBuilder = getEntityManager().getCriteriaBuilder();
+    // a diagnostic query
+    Query query = entityManager.createQuery("select count(u) from User u");
+    Object res = query.getSingleResult();
+    log.log(Level.INFO, "Users in database: {0}", res);
   }
   
   /**
@@ -88,7 +102,7 @@ public class DirectoryStart {
         log.log(Level.INFO, "Directory server connection received");
         socket.setSoLinger(true, 1); //wait max. 1 Second for Socket to close gracefully
         socket.setSoTimeout(5000); // wait max. 5 Seconds for receiving data from the socket
-        DirectoryQueryHandler dqh = new DirectoryQueryHandler (socket);
+        DirectoryQueryHandler dqh = new DirectoryQueryHandler (socket, this);
         execService.submit(dqh);
       }
     } catch (IOException e) {
@@ -99,4 +113,21 @@ public class DirectoryStart {
 
   }
 
+  /* (non-Javadoc)
+   * @see de.flyingsnail.ipv6backwardserver.directory.DirectoryData#getCriteriaBuilder()
+   */
+  @Override
+  public CriteriaBuilder getCriteriaBuilder() {
+    return criteriaBuilder;
+  }
+
+
+  /* (non-Javadoc)
+   * @see de.flyingsnail.ipv6backwardserver.directory.DirectoryData#getEntityManager()
+   */
+  @Override
+  public EntityManager getEntityManager() {
+    return entityManager;
+  }
+  
 }

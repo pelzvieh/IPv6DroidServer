@@ -1,5 +1,6 @@
+package de.flyingsnail.ipv6droid.ayiya;
 /*
- * Copyright (c) 2013 Dr. Andreas Feldner.
+ * Copyright (c) 2013-2016 Dr. Andreas Feldner.
  *
  *     This program is free software; you can redistribute it and/or modify
  *     it under the terms of the GNU Lesser General Public License as published by
@@ -18,81 +19,97 @@
  * Contact information and current version at http://www.flying-snail.de/IPv6Droid
  */
 
-package de.flyingsnail.ipv6droid.ayiya;
+
 
 import java.io.Serializable;
 import java.net.Inet4Address;
 import java.net.Inet6Address;
 import java.net.UnknownHostException;
 import java.util.Date;
-import java.util.logging.Level;
-import java.util.logging.Logger;
+
+import javax.persistence.Cacheable;
+import javax.persistence.Column;
+import javax.persistence.Entity;
+import javax.persistence.Id;
 
 /**
  * This represents the tunnel description as delivered by the tic protocol.
  * Created by pelzi on 17.08.13.
  */
+@Entity
+@Cacheable
 public class TicTunnel implements Serializable {
+  private static final long serialVersionUID = 7828811405806439946L;
+
   /** the id to use in tic queries */
+  @Id
   private String id;
 
   /**
    * The id told in the tunnel description. It is different in the examples given (no leading "T")
    * - no idea why we have two ids.
    */
+  @Column(unique = true, nullable = false)
   private String tunnelId;
 
   /**
-   * The type of tunnel. 6in4 is the only one expected here.
+   * The type of tunnel. Ayiya is the only one expected here.
    */
+  @Column(nullable = false, length = 10)
   private String type;
 
   /**
    * IPv6 endpoint of the tunnel
    */
+  
+  @Column(nullable = false, unique = true)
   private Inet6Address ipv6Endpoint;
 
   /**
    * IPv6 address of the POP.
    */
+  @Column(nullable = false)
   private Inet6Address ipv6Pop;
 
   /**
    * Prefix length of the tunnel endpoint.
    */
+  @Column(nullable = false, length = 3)
   private int prefixLength;
 
   /**
    * The name of the POP.
    */
+  @Column(nullable = false)
   private String popName;
 
-  /**
-   * No idea what this is.
+  /** 
+   * POP address in IPv4. This is an attribute that arises from the installation, not persisted!
    */
-  private String ipv4Endpoint;
-
-  /** POP address in IPv4 */
   private Inet4Address ipv4Pop;
 
   /**
    * A String representing the state configured by the user.
    */
+  @Column(nullable = false, length = 10)
   private String userState;
 
   /**
    * A String representing the state configured by the administrator.
    */
+  @Column(nullable = false, length = 10)
   private String adminState;
 
   /**
    * A String with the connection password
    */
+  @Column(nullable = false, length = 30)
   private String password;
 
   /**
    * The heartbeat interval in seconds.
    */
+  @Column(nullable = false, length = 4)
   private int heartbeatInterval;
 
   public String getTunnelName() {
@@ -106,23 +123,28 @@ public class TicTunnel implements Serializable {
   /**
    * The user-given name of the tunnel.
    */
+  @Column(nullable = false, length = 255)
   private String tunnelName;
 
   /** The maximum transmission unit in bytes. */
+  @Column(length = 4, nullable = false)
   private int mtu;
 
   /** The timestamp of this tunnel's creation */
+  @Column(nullable = false)
   private Date creationDate = new Date();
 
-  private Logger logger;
-
+  /**
+   * Default constructor. Required for JPA.
+   */
+  public TicTunnel() {
+  }
   /**
    * Constructor. All attributes apart from id created null.
    * @param id a String representing the id to use for querying the tic.
    */
   public TicTunnel(String id) {
     this.id = id;
-    logger = Logger.getLogger(getClass().getName()+ "." + id);
   }
 
   public Inet4Address getIPv4Pop() {
@@ -179,14 +201,6 @@ public class TicTunnel implements Serializable {
 
   public void setPopName(String popName) {
     this.popName = popName;
-  }
-
-  public String getIpv4Endpoint() {
-    return ipv4Endpoint;
-  }
-
-  public void setIpv4Endpoint(String ipv4Endpoint) {
-    this.ipv4Endpoint = ipv4Endpoint;
   }
 
   public String getUserState() {
@@ -269,8 +283,6 @@ public class TicTunnel implements Serializable {
         setPrefixLength(Integer.parseInt(value));
       else if ("PoP Name".equalsIgnoreCase(key) || "PoP Id".equalsIgnoreCase(key))
         setPopName(value);
-      else if ("IPv4 Endpoint".equalsIgnoreCase(key))
-        setIpv4Endpoint(value);
       else if ("IPv4 PoP".equalsIgnoreCase(key))
         setIPv4Pop(value);
       else if ("UserState".equalsIgnoreCase(key))
@@ -290,10 +302,8 @@ public class TicTunnel implements Serializable {
 
       return true; // if we're here, some method call succeeded.
     } catch (UnknownHostException e) {
-      logger .log(Level.WARNING, "unable to resolve string intended to be an address: " + value);
-      return false;
+      throw new IllegalArgumentException("unable to resolve string intended to be an address: " + value, e);
     }
-
   }
 
   /**
@@ -323,7 +333,6 @@ public class TicTunnel implements Serializable {
         && getIpv6Pop().equals(((TicTunnel)o).getIpv6Pop())
         && getPrefixLength() == ((TicTunnel)o).getPrefixLength()
         && getPopName().equals(((TicTunnel)o).getPopName())
-        && getIpv4Endpoint().equals(((TicTunnel)o).getIpv4Endpoint())
         && getUserState().equals(((TicTunnel)o).getUserState())
         && getAdminState().equals(((TicTunnel)o).getAdminState())
         && getPassword().equals(((TicTunnel)o).getPassword())
