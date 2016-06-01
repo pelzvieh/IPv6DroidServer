@@ -3,11 +3,12 @@
 	<classpathentry kind="src" path="src"/>
 	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER"/>
 	<classpathentry kind="lib" path="org.eclipse.jdt.annotation_2.0.100.v20150311-1658.jar"/>
+	<classpathentry kind="con" path="org.eclipse.datatools.connectivity.jdt.DRIVERLIBRARY/HSQLDB JDBC Driver"/>
+	<classpathentry kind="con" path="org.eclipse.jdt.USER_LIBRARY/jdbc"/>
 	<classpathentry kind="con" path="org.eclipse.jdt.USER_LIBRARY/eclipselink">
 		<attributes>
 			<attribute name="owner.project.facets" value="jpt.jpa"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry kind="con" path="org.eclipse.datatools.connectivity.jdt.DRIVERLIBRARY/HSQLDB JDBC Driver"/>
 	<classpathentry kind="output" path="bin"/>
 </classpath>

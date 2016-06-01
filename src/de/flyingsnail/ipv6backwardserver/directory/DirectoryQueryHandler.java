@@ -12,6 +12,7 @@ import java.net.Socket;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.text.MessageFormat;
 import java.util.Date;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -25,6 +26,8 @@ import javax.persistence.criteria.CriteriaBuilder;
 import javax.persistence.criteria.CriteriaQuery;
 import javax.persistence.criteria.Root;
 
+import de.flyingsnail.ipv6droid.ayiya.TicTunnel;
+
 public class DirectoryQueryHandler extends Thread {
   Socket socket;
   private BufferedReader in;
@@ -34,6 +37,7 @@ public class DirectoryQueryHandler extends Thread {
   private String challenge;
   private DirectoryData directoryData;
   private String response;
+  private User authenticatedUser;
   static Pattern patternClientId = Pattern.compile("client TIC/draft-00 ([.\\-,:+ \\w\\d]+)/(\\S+) (\\w+)/(\\S+)");
   static Pattern patternUsername = Pattern.compile("username ([.\\-+\\w\\d]+)");
   static Pattern patternAuth = Pattern.compile("authenticate md5 ([[a-f][0-9][A-F]]+)");
@@ -43,6 +47,7 @@ public class DirectoryQueryHandler extends Thread {
     logger.info("Constructing a new query handler for reqeust from " + socket.getRemoteSocketAddress() + "/" + socket.getPort());
     this.socket = socket;
     this.directoryData = directoryData;
+    this.authenticatedUser = null;
     in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
     out = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
   }
@@ -62,7 +67,6 @@ public class DirectoryQueryHandler extends Thread {
       protocolStepRequestChallenge();
       protocolStepSendAuthentication();
       logger.log(Level.INFO, "TIC protocol succeed - entering interactive phase for user " + userName);
-      // TODO read tunnel list belonging to the authenticated user
       while (socket.isConnected()) {
         String request = readRequest();
         if (request.startsWith("QUIT")) {
@@ -70,40 +74,25 @@ public class DirectoryQueryHandler extends Thread {
           writeResponse(200, "see you later aligator");
           break;
         } else if ("tunnel list".equals(request)) {
-          logger.info("Client requested tunnel list");
-          // TODO iterate over actual tunnel list
-          out.write("200 tunnel list goes here\n");
-          out.write("007 ein Tunnel\n");
-          out.write("202\n");
-          out.flush();
+          replyTunnelList();
         } else if (request.startsWith("tunnel show ")) {
-          writeResponse(200, "Tunnel description follows");
-          // TODO  write actual tunnel data
           String id = request.substring("tunnel show ".length());
-          logger.info("Client requested details for tunnel id " + id);
-          out.write("TunnelId: ");out.write(id);out.newLine();
-          out.write("Type: ");out.write("ayiya");out.newLine();
-          out.write("IPv6 Endpoint: ");out.write("2a06:1c40:c1::2");out.newLine();
-          out.write("IPv6 PoP: ");out.write("2a06:1c40:c1::1");out.newLine();
-          out.write("IPv6 PrefixLength: ");out.write("64");out.newLine();
-          out.write("PoP Name: ");out.write("Flying Snail");out.newLine();
-          //out.write("IPv4 Endpoint: ");out.write("192.168.1.4");out.newLine();
-          out.write("IPv4 PoP: ");out.write("192.168.1.135");out.newLine();
-          out.write("UserState: ");out.write("enabled");out.newLine();
-          out.write("AdminState: ");out.write("enabled");out.newLine();
-          out.write("Password: ");out.write("geheim");out.newLine();
-          out.write("Heartbeat_Interval: ");out.write("300");out.newLine();
-          out.write("Tunnel MTU: ");out.write("1300");out.newLine();         
-          out.write("Tunnel Name: ");out.write("Herbert");out.newLine();
-          out.write("202\n");
-          out.flush();
+          replyTunnelShow(id);
         }
       }
       logger.info("Session successfully finished");
-    } catch (IllegalRequest ise) {
+    } catch (IllegalRequestException ise) {
       logger.log(Level.WARNING, "TIC session did not run the hard coded way - aborting", ise);
       try {
         writeResponse(401, "illegal request flow");
+        out.flush();
+      } catch (IOException e) {
+        // our goodbye did not arrive, not a problem
+      }
+    } catch (AuthenticationFailedException afe) {
+      logger.log(Level.WARNING, "authentication failed", afe);
+      try {
+        writeResponse(301, "authentication failed, goodbye");
         out.flush();
       } catch (IOException e) {
         // our goodbye did not arrive, not a problem
@@ -128,17 +117,69 @@ public class DirectoryQueryHandler extends Thread {
     }
   }
 
-  private void protocolStepWelcome() throws IOException, IllegalRequest {
+  /**
+   * @param request
+   * @throws IOException
+   */
+  private void replyTunnelShow(String id) throws IOException {
+    logger.log(Level.INFO, "Client requested details for tunnel id {0}", id);
+
+    TicTunnel tunnel = null;
+    for (TicTunnel compare: authenticatedUser.getTunnels())
+      if (compare.getTunnelId().equals(id)) {
+        tunnel = compare;
+        break;
+      }
+    if (tunnel == null) {
+      logger.log(Level.WARNING, "Request was made for tunnel id {0}, which is not associated with user {1}", 
+          new Object[]{id, userName});
+      writeResponse(402, "No such tunnel");
+      return;
+    }
+    
+    // the requested tunnel is associated with the user, we provide its data
+    writeResponse(200, "Tunnel description follows");
+    out.write("TunnelId: ");out.write(id);out.newLine();
+    out.write("Type: ");out.write(tunnel.getType());out.newLine();
+    out.write("IPv6 Endpoint: ");out.write(tunnel.getIpv6Endpoint().getHostAddress());out.newLine();
+    out.write("IPv6 PoP: ");out.write(tunnel.getIpv6Pop().getHostAddress());out.newLine();
+    out.write("IPv6 PrefixLength: ");out.write(String.valueOf(tunnel.getPrefixLength()));out.newLine();
+    out.write("PoP Name: ");out.write(tunnel.getPopName());out.newLine();
+    out.write("IPv4 PoP: ");out.write(socket.getLocalAddress().getHostAddress());out.newLine();
+    out.write("UserState: ");out.write(tunnel.getUserState());out.newLine();
+    out.write("AdminState: ");out.write(tunnel.getAdminState());out.newLine();
+    out.write("Password: ");out.write(tunnel.getPassword());out.newLine();
+    out.write("Heartbeat_Interval: ");out.write(String.valueOf(tunnel.getHeartbeatInterval()));out.newLine();
+    out.write("Tunnel MTU: ");out.write(String.valueOf(tunnel.getMtu()));out.newLine();         
+    out.write("Tunnel Name: ");out.write(tunnel.getTunnelName());out.newLine();
+    out.write("202\n");
+    out.flush();
+  }
+
+  /**
+   * @throws IOException
+   */
+  private void replyTunnelList() throws IOException {
+    logger.info("Client requested tunnel list");
+    out.write("200 tunnel list goes here\n");
+    for (TicTunnel tunnel: authenticatedUser.getTunnels()) {
+      out.write(MessageFormat.format("{0} {1}\n", tunnel.getTunnelId(), tunnel.getTunnelName()));
+    }
+    out.write("202\n");
+    out.flush();
+  }
+
+  private void protocolStepWelcome() throws IOException, IllegalRequestException {
     if (socket.getLocalAddress() instanceof Inet4Address) {
       writeResponse(200, "Welcome to the museum of historical tcp based protocols");
     } else {
       writeResponse(400, "You don't need to access the directory service if you have a working IPv6 connection");
-      throw new IllegalRequest("we're accessed by IPv6");
+      throw new IllegalRequestException("we're accessed by IPv6");
     }
   }
 
   
-  private void protocolStepClientIdentification() throws IOException, IllegalRequest {
+  private void protocolStepClientIdentification() throws IOException, IllegalRequestException {
     String clientId = readRequest();
     Matcher matcher = patternClientId.matcher(clientId);
     if (matcher.matches()) {
@@ -151,24 +192,24 @@ public class DirectoryQueryHandler extends Thread {
       writeResponse(200, "Welcome "+ clientName);
     } else {
       logger.log(Level.WARNING, "Client identifiation (" + clientId + ") does not match pattern");
-      throw new IllegalRequest ("Invalid client identification");
+      throw new IllegalRequestException ("Invalid client identification");
     }
   }
 
-  private void protocolStepTimeComparison() throws IOException, IllegalRequest {
+  private void protocolStepTimeComparison() throws IOException, IllegalRequestException {
     String request = readRequest();
     if (!request.equals("get unixtime")) {
-      throw new IllegalRequest ("client did not ask for unix time: " + request);
+      throw new IllegalRequestException ("client did not ask for unix time: " + request);
     }
     long timeSecs = new Date().getTime() / 1000l;
     logger.log(Level.INFO, "Client asked for unix time");
     writeResponse(200, String.valueOf(timeSecs));
   }
 
-  private void protocolStepStartTLS() throws IOException, IllegalRequest {
+  private void protocolStepStartTLS() throws IOException, IllegalRequestException {
     String request = readRequest();
     if (!request.equals("STARTTLS")) {
-      throw new IllegalRequest ("client did not ask to start TLS: " + request);
+      throw new IllegalRequestException ("client did not ask to start TLS: " + request);
     }
     // TODO implement TLS
     logger.warning("We're failing to switch to TLS");
@@ -193,7 +234,7 @@ public class DirectoryQueryHandler extends Thread {
  */
   }
 
-  private void protocolStepSendUsername() throws IOException, IllegalRequest {
+  private void protocolStepSendUsername() throws IOException, IllegalRequestException {
     String request = readRequest();
     Matcher matcher = patternUsername.matcher(request);
     if (matcher.matches()) {
@@ -201,14 +242,14 @@ public class DirectoryQueryHandler extends Thread {
       logger.info("client presented as user " + userName);
       writeResponse(200, "Continue " + userName);
     } else {
-      throw new IllegalRequest("client did not send a username: " + request);
+      throw new IllegalRequestException("client did not send a username: " + request);
     }
   }
 
-  private void protocolStepRequestChallenge() throws IOException, IllegalRequest {
+  private void protocolStepRequestChallenge() throws IOException, IllegalRequestException {
     String request = readRequest();
     if (!request.equals("challenge md5")) {
-      throw new IllegalRequest ("client did not ask to start TLS: " + request);
+      throw new IllegalRequestException ("client did not ask to start TLS: " + request);
     }
     SecureRandom random = new SecureRandom();
     byte[] challengeBytes = new byte[16];
@@ -218,20 +259,20 @@ public class DirectoryQueryHandler extends Thread {
     writeResponse(200, challenge);
   }
 
-  private void protocolStepSendAuthentication() throws IOException, IllegalRequest {
+  private void protocolStepSendAuthentication() throws IOException, IllegalRequestException, AuthenticationFailedException {
     String request = readRequest();
     Matcher matcher = patternAuth.matcher(request);
     if (matcher.matches()) {
       response = matcher.group(1);
       logger.info("client presented response to md5 challenge");
-      checkCredentials();
+      authenticatedUser = checkCredentials();
       writeResponse(200, "Welcome " + userName);
     } else {
-      throw new IllegalRequest("client did not send a response to md5 challenge: " + request);
+      throw new IllegalRequestException("client did not send a response to md5 challenge: " + request);
     }
   }
 
-  private void checkCredentials() throws IllegalRequest {
+  private User checkCredentials() throws AuthenticationFailedException {
     // try to read the indicated user from our database
     User u;
     String password;
@@ -269,9 +310,10 @@ public class DirectoryQueryHandler extends Thread {
     }
     
     if (u == null)
-      throw new IllegalRequest ("Attempt to log in with a non-existing user");
+      throw new AuthenticationFailedException ("Attempt to log in with a non-existing user");
     if (!signature.equals(response))
-      throw new IllegalRequest ("User response to challenge does not match");
+      throw new AuthenticationFailedException ("User response to challenge does not match");
+    return u;
   }
 
   /**

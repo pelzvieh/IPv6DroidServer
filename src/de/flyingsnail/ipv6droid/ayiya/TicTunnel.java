@@ -30,7 +30,11 @@ import java.util.Date;
 import javax.persistence.Cacheable;
 import javax.persistence.Column;
 import javax.persistence.Entity;
+import javax.persistence.GeneratedValue;
+import javax.persistence.GenerationType;
 import javax.persistence.Id;
+import org.eclipse.persistence.annotations.Convert;
+import org.eclipse.persistence.annotations.ObjectTypeConverter;
 
 /**
  * This represents the tunnel description as delivered by the tic protocol.
@@ -43,6 +47,7 @@ public class TicTunnel implements Serializable {
 
   /** the id to use in tic queries */
   @Id
+  @GeneratedValue(strategy = GenerationType.AUTO)
   private String id;
 
   /**
@@ -350,5 +355,9 @@ public class TicTunnel implements Serializable {
   public String toString() {
     return tunnelName + " (" + tunnelId + "), " + type
         + "\n Your endpoint " + ipv6Endpoint;
+  }
+
+  public void setCreationDate(Date date) {
+    creationDate = date;
   }
 }

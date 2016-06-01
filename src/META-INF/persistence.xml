@@ -4,6 +4,7 @@
 		<provider>org.eclipse.persistence.jpa.PersistenceProvider</provider>
 		<class>de.flyingsnail.ipv6backwardserver.directory.User</class>
 		<class>de.flyingsnail.ipv6droid.ayiya.TicTunnel</class>
+		<class>de.flyingsnail.ipv6droid.ayiya.Inet6AddressConverter</class>
 		<exclude-unlisted-classes>false</exclude-unlisted-classes>
 		<properties>
 			<property name="javax.persistence.jdbc.url" value="jdbc:hsqldb:file:/Users/pelzi/Documents/workspace/IPv6BackwardServer/HSQLDB"/>

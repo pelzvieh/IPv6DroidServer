@@ -20,6 +20,7 @@
 
 package de.flyingsnail.ipv6backwardserver.directory;
 
+import static javax.persistence.CascadeType.ALL;
 import static javax.persistence.FetchType.LAZY;
 
 import java.util.List;
@@ -50,7 +51,7 @@ public class User {
   private String password;
   
   
-  @OneToMany(fetch = LAZY, orphanRemoval = false)
+  @OneToMany(fetch = LAZY, orphanRemoval = false, cascade = ALL)
   private List<TicTunnel> tunnels;
   
   @Column
@@ -60,6 +61,10 @@ public class User {
   private String emailAddress;
   
   public User() {
+  }
+
+  public User(String internalId) {
+    id = internalId;
   }
 
   /**
