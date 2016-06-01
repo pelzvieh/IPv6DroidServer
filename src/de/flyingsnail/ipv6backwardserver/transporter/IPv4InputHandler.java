@@ -24,6 +24,7 @@ import java.net.Inet6Address;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
+import java.rmi.NoSuchObjectException;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -77,9 +78,11 @@ public class IPv4InputHandler implements Runnable {
     Inet6Address sender = AyiyaServer.precheckPacket(buffer.array(), buffer.arrayOffset(), buffer.limit());
     if (sender == null)
       return;
-    AyiyaServer ayiyaServer = ayiyaData.getServer(sender);
-    if (ayiyaServer == null) {
-      logger.warning("Unsupported IPv6 address referred from incoming Ayiya packet: " + sender);
+    AyiyaServer ayiyaServer;
+    try {
+      ayiyaServer = ayiyaData.getServer(sender);
+    } catch (NoSuchObjectException e) {
+      logger.log(Level.WARNING, "Unsupported IPv6 address referred from incoming IPv6 packet: {0}", sender);
       return;
     }
     if (!ayiyaServer.isConnected())

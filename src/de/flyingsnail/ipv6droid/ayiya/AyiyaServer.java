@@ -21,7 +21,6 @@
 package de.flyingsnail.ipv6droid.ayiya;
 
 import java.io.IOException;
-import java.io.OutputStream;
 import java.io.UnsupportedEncodingException;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
@@ -114,6 +113,12 @@ public class AyiyaServer {
    */
   private @NonNull DatagramChannel ipv4Channel;
 
+  /**
+   * The interval in seconds, that the client is required to give a heartbeat signal. After this interval,
+   * the client IPv4 address is considered invalid, the server closed.
+   */
+  private int heartbeatInterval;
+
 
   /**
    * Yield the time when the last packet was <b>received</b>. This gives an indication if the
@@ -201,6 +206,7 @@ public class AyiyaServer {
     ipv6Local = tunnel.getIpv6Endpoint();
     ipv6Pop = tunnel.getIpv6Pop();
     mtu = tunnel.getMtu();
+    heartbeatInterval = tunnel.getHeartbeatInterval();
     this.ipv4Channel = ipv4Channel;
 
     // we only need the hash of the password
@@ -230,7 +236,7 @@ public class AyiyaServer {
    */
   public synchronized void connect(@NonNull BufferWriter ipv6out, @NonNull SocketAddress clientSocketAddress) 
       throws IOException, ConnectionFailedException {
-    if (this.ipv6out != null) {
+    if (isConnected()) {
       throw new IllegalStateException("This AYIYA is already connected.");
     }
 
@@ -256,6 +262,11 @@ public class AyiyaServer {
    * @return boolean, true if connected.
    */
   public boolean isConnected() {
+    if (getLastPacketReceivedTime().getTime() + heartbeatInterval * 1000l < new Date().getTime()) {
+      // timeout, close this server
+      close();
+      return false;
+    }
     return (this.ipv6out != null);
   }
 
@@ -516,68 +527,6 @@ public class AyiyaServer {
     ByteBuffer dgPacket = ByteBuffer.wrap(ayiyaPacket);
     ipv4Channel.send(dgPacket, clientSocketAddress);
     lastPacketSentTime = new Date();
-  }
-
-  private class AyiyaOutputStream extends OutputStream {
-    @Override
-    public void write(@NonNull byte[] buffer) throws IOException {
-      this.write(buffer, 0, buffer.length);
-    }
-
-    @Override
-    public void write(@NonNull byte[] buffer, int offset, int count) throws IOException {
-      try {
-        ByteBuffer bb = ByteBuffer.wrap(buffer, offset, count);
-        AyiyaServer.this.writeToIPv4(bb);
-      } catch (IllegalArgumentException e) {
-        throw new IOException (e);
-      }
-    }
-
-    @Override
-    public void write(int i) throws IOException {
-      this.write(new byte[] {(byte)i});
-    }
-  }
-
-  private class IPv6OutputStream extends OutputStream {
-    @Override
-    public void write(@NonNull byte[] buffer) throws IOException {
-      this.write(buffer, 0, buffer.length);
-    }
-
-    @Override
-    public void write(@NonNull byte[] buffer, int offset, int count) throws IOException {
-      try {
-        ByteBuffer bb = ByteBuffer.wrap(buffer, offset, count);
-        AyiyaServer.this.writeToIPv6(bb);
-      } catch (IllegalArgumentException e) {
-        throw new IOException (e);
-      }
-    }
-
-    @Override
-    public void write(int i) throws IOException {
-      this.write(new byte[] {(byte)i});
-    }
-  }
-
-  /**
-   * Provides an OutputStream into the tunnel. Any write should give a whole tcp package to transmit.
-   * This packet is wrapped into an AYIYA struct and transmitted via IPv4 to the client.
-   * @return the OutputStream
-   */
-  public OutputStream getAyiyaOutputStream() {
-    return new AyiyaOutputStream();
-  }
-
-  /**
-   * Provides an OutputStream to the big wide world of IPv6. Any write should have a whole AYIYA package to transmit.
-   * This packet is verified, unwrapped, and transmitted via IPv6 to its intended destination.
-   * @return the OutputStream
-   */
-  public OutputStream getIPv6OutputStream() {
-    return new IPv6OutputStream();
   }
 
   /**
