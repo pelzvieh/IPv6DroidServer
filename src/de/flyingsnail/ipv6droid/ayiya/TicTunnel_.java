@@ -7,7 +7,7 @@ import javax.annotation.Generated;
 import javax.persistence.metamodel.SingularAttribute;
 import javax.persistence.metamodel.StaticMetamodel;
 
-@Generated(value="Dali", date="2016-06-01T16:29:02.750+0200")
+@Generated(value="Dali", date="2016-06-02T00:54:09.274+0200")
 @StaticMetamodel(TicTunnel.class)
 public class TicTunnel_ {
 	public static volatile SingularAttribute<TicTunnel, String> id;
