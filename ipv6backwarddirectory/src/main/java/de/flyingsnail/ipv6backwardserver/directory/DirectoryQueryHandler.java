@@ -32,7 +32,7 @@ import de.flyingsnail.ipv6backwarddata.ayiya.TicTunnel;
 import de.flyingsnail.ipv6backwarddata.ayiya.TicTunnel_;
 
 public class DirectoryQueryHandler extends Thread {
-  Socket socket;
+  private Socket socket;
   private BufferedReader in;
   private BufferedWriter out;
   private Logger logger;
@@ -173,12 +173,7 @@ public class DirectoryQueryHandler extends Thread {
   }
 
   private void protocolStepWelcome() throws IOException, IllegalRequestException {
-    if (socket.getLocalAddress() instanceof Inet4Address) {
-      writeResponse(200, "Welcome to the museum of historical tcp based protocols");
-    } else {
-      writeResponse(400, "You don't need to access the directory service if you have a working IPv6 connection");
-      throw new IllegalRequestException("we're accessed by IPv6");
-    }
+    writeResponse(200, "Welcome to the museum of historical tcp based protocols");
   }
 
   

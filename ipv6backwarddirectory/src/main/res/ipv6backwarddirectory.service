@@ -1,0 +1,16 @@
+[Unit]
+After=mysql
+
+[Install]
+WantedBy=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/java -jar ${HOME}/ipv6backwarddirectory.jar
+RestartSec=1
+Restart=always
+WorkingDirectory=${HOME}
+User=ipv6directory
+Group=ipv6server
+StandardError=syslog
+ProtectHome=true

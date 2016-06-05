@@ -1,0 +1,21 @@
+[Unit]
+After=mysql
+IOSchedulingClass=1
+IOSchedulingPriority=1
+CPUSchedulingPriority=90
+CPUSchedulingPolicy=rr
+
+[Install]
+WantedBy=multi-user.target
+
+[Service]
+Type=simple
+Environment="PATH=/bin:/usr/bin:/var/lib/ipv6transport/bin"
+ExecStart=/usr/bin/java -Xmx800M -jar ${HOME}/ipv6backwardtransport.jar
+RestartSec=1
+Restart=always
+WorkingDirectory=${HOME}
+User=ipv6transport
+Group=ipv6server
+StandardError=syslog
+ProtectHome=true

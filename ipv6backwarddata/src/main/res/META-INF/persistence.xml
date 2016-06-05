@@ -1,15 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <persistence version="2.1" xmlns="http://xmlns.jcp.org/xml/ns/persistence" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://xmlns.jcp.org/xml/ns/persistence http://xmlns.jcp.org/xml/ns/persistence/persistence_2_1.xsd">
     <persistence-unit name="IPv6Directory" transaction-type="RESOURCE_LOCAL">
-        <provider>org.eclipse.persistence.jpa.PersistenceProvider</provider>
+    	<provider>org.eclipse.persistence.jpa.PersistenceProvider</provider>
         <class>de.flyingsnail.ipv6backwardserver.directory.User</class>
-        <class>de.flyingsnail.ipv6backwarddata.ayiya.TicTunnel</class>
-        <class>de.flyingsnail.ipv6backwarddata.ayiya.Inet6AddressConverter</class>
+        <class>de.flyingsnail.ipv6droid.ayiya.TicTunnel</class>
+        <class>de.flyingsnail.ipv6droid.ayiya.Inet6AddressConverter</class>
         <exclude-unlisted-classes>false</exclude-unlisted-classes>
         <properties>
-            <property name="javax.persistence.jdbc.url" value="jdbc:hsqldb:file:/Users/pelzi/Documents/workspace/IPv6BackwardServer/HSQLDB"/>
-            <property name="javax.persistence.jdbc.user" value="sa"/>
-            <property name="javax.persistence.jdbc.driver" value="org.hsqldb.jdbcDriver"/>
+            <property name="javax.persistence.jdbc.url" value="jdbc:mysql://localhost:3306/ipv6data"/>
+            <property name="javax.persistence.jdbc.user" value="ipv6directory"/>
+            <property name="javax.persistence.jdbc.driver" value="com.mysql.jdbc.Driver"/>
+            <property name="javax.persistence.jdbc.password" value="x0b2bxRssmgkaq"/>
         </properties>
     </persistence-unit>
 </persistence>

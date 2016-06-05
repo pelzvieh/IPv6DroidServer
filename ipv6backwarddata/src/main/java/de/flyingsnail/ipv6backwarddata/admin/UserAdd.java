@@ -13,14 +13,39 @@ import java.util.Properties;
 import javax.persistence.EntityManager;
 import javax.persistence.EntityTransaction;
 import javax.persistence.Persistence;
+import javax.persistence.criteria.CriteriaBuilder;
+import javax.persistence.criteria.CriteriaQuery;
+import javax.persistence.criteria.Root;
+import javax.persistence.TypedQuery;
 
 import de.flyingsnail.ipv6backwarddata.ayiya.TicTunnel;
 import de.flyingsnail.ipv6backwarddata.ayiya.User;
+import de.flyingsnail.ipv6backwarddata.ayiya.User_;
+
 
 public class UserAdd {
 
   public static void main(String[] args) {
-    File dataFile = new File(args[0]);
+    if (args.length == 0) {
+      System.err.println("Syntax: UserAdd [-u|-t] [new user properties file]");
+      System.err.println("Modes:");
+      System.err.println("-u: Updates data of existing user, tunnel-related properties are ignored");
+      System.err.println("-t: adds a new tunnel to an existing user given by Username, other user properties are ignored");
+      System.err.println("default: adds a new user with exactly one tunnel");
+      System.exit (127);
+    }
+    File dataFile = new File(args[args.length-1]);
+    boolean updateUser = false;
+    boolean addTunnel = false;
+    if (args.length > 1)
+      switch (args[0]) {
+      case "-u":
+        updateUser = true;
+        break;
+      case "-t":
+        addTunnel = true;
+        break;
+      }
 
     Properties data = new Properties();
     try {
@@ -67,10 +92,26 @@ public class UserAdd {
     user.setTunnels(tunnels);
     
     EntityManager em = Persistence.
-        createEntityManagerFactory("IPv6BackwardServer").createEntityManager();
+        createEntityManagerFactory("IPv6Directory").createEntityManager();
     EntityTransaction trans = em.getTransaction();
     trans.begin();
-    em.persist(user);
+    if (updateUser) {
+      //TODO: Load user from DB, update updateble fields, write back
+      System.err.println("Not yet implemented");
+    } else if (addTunnel) {
+      CriteriaBuilder cb = em.getCriteriaBuilder();
+      CriteriaQuery<User> q = cb.createQuery(User.class);
+      Root<User> userRoot = q.from(User.class);
+      q.where(cb.equal(userRoot.get(User_.username), user.getUsername()));
+      TypedQuery<User> tq = em.createQuery(q);
+      User userForUpdate = tq.getSingleResult();
+      List<TicTunnel> tunnelsForUpdate = userForUpdate.getTunnels();
+      tunnelsForUpdate.add(tunnel);
+      userForUpdate.setTunnels(tunnelsForUpdate);
+      em.persist(userForUpdate);
+    } else {
+      em.persist(user);
+    }
     trans.commit();
     em.close();
     System.out.println("User created with Tunnel associated");

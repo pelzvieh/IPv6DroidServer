@@ -85,6 +85,7 @@ public class IPv4InputHandler implements Runnable {
       logger.log(Level.WARNING, "Unsupported IPv6 address referred from incoming IPv6 packet: {0}", sender);
       return;
     }
+    // TODO the address change *must* first check if the packet is correctly signed.
     if (!ayiyaServer.isConnected())
       ayiyaServer.connect(ipv6out, clientAddress);
     if (!ayiyaServer.getClientAddress().equals(clientAddress))

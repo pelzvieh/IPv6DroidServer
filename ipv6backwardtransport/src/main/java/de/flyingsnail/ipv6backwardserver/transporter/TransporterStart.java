@@ -20,17 +20,26 @@
 package de.flyingsnail.ipv6backwardserver.transporter;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.Inet4Address;
 import java.net.Inet6Address;
 import java.net.InetSocketAddress;
 import java.nio.channels.DatagramChannel;
 import java.rmi.NoSuchObjectException;
+import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
+import java.util.List;
 import java.util.Properties;
-import java.util.Set;
 import java.util.logging.Level;
+import java.util.logging.LogManager;
 import java.util.logging.Logger;
+
+import javax.persistence.EntityManager;
+import javax.persistence.Persistence;
+import javax.persistence.TypedQuery;
+import javax.persistence.criteria.CriteriaBuilder;
+import javax.persistence.criteria.CriteriaQuery;
+import javax.persistence.criteria.Root;
 
 import org.eclipse.jdt.annotation.NonNull;
 
@@ -47,7 +56,7 @@ public class TransporterStart implements AyiyaData {
   private Inet4Address ipv4pop;
   private int ipv4port;
   private DatagramChannel ipv4Channel;
-  private Set<TicTunnel> tunnels;
+  private List<TicTunnel> tunnels;
   private HashMap<Inet6Address, AyiyaServer> ayiyaHash;
   
   private static Logger logger = Logger.getLogger(TransporterStart.class.getName());
@@ -57,6 +66,12 @@ public class TransporterStart implements AyiyaData {
    */
   public static void main(String[] args) {
     try {
+      InputStream configIS = ClassLoader.getSystemResourceAsStream("logging.properties");
+      if (configIS != null)
+        LogManager.getLogManager().readConfiguration(configIS);
+      else
+        logger.log(Level.WARNING, "No logging properties found");
+
       Properties config = new Properties();
       config.load(TransporterStart.class.getResourceAsStream("config.properties"));
       String ip = config.getProperty("ip");
@@ -81,7 +96,7 @@ public class TransporterStart implements AyiyaData {
     super();
     this.ipv4pop = ipv4pop;
     this.ipv4port = ipv4port;
-    this.tunnels = new HashSet<TicTunnel>();
+    this.tunnels = new ArrayList<TicTunnel>(0);
     this.ayiyaHash = new HashMap<Inet6Address, AyiyaServer>();
   }
 
@@ -125,28 +140,25 @@ public class TransporterStart implements AyiyaData {
   }
 
   private void readTunnelSet() throws IOException {
-    Properties config = new Properties();
-    config.load(TransporterStart.class.getResourceAsStream("/de/flyingsnail/ipv6backwardserver/tunnels.properties"));
-    TicTunnel tunnel = new TicTunnel(config.getProperty("TunnelId"));
-
-    tunnel.setType (config.getProperty("Type"));
-    tunnel.setIpv6Endpoint (config.getProperty("IPv6Endpoint"));
-    tunnel.setIpv6Pop (config.getProperty("IPv6PoP"));
-    tunnel.setPrefixLength (Integer.valueOf(config.getProperty("IPv6PrefixLength")));
-    tunnel.setPopName (config.getProperty("PoPName"));
-    tunnel.setIPv4Pop (ipv4pop.getHostAddress());
-    tunnel.setUserState (config.getProperty("UserState"));
-    tunnel.setAdminState (config.getProperty("AdminState"));
-    tunnel.setPassword (config.getProperty("Password"));
-    tunnel.setHeartbeatInterval (Integer.valueOf(config.getProperty("HeartbeatInterval")));
-    tunnel.setMtu (Integer.valueOf(config.getProperty("TunnelMTU")));
-    tunnel.setTunnelName (config.getProperty("TunnelName"));
+    EntityManager entityManager = Persistence.createEntityManagerFactory("IPv6Directory").
+        createEntityManager();
+    CriteriaBuilder criteriaBuilder = entityManager.getCriteriaBuilder();
     
+    // query all tunnels
+    CriteriaQuery<TicTunnel> criteriaQuery = criteriaBuilder.createQuery(TicTunnel.class);
+    Root<TicTunnel> ticTunnelRoot = criteriaQuery.from(TicTunnel.class);
+    criteriaQuery.select(ticTunnelRoot);
+    TypedQuery<TicTunnel> query = entityManager.createQuery(criteriaQuery);
     tunnels.clear();
-    tunnels.add(tunnel);
+    tunnels = query.getResultList();
+    logger.log(Level.INFO, "Read {0} tunnel definitions", tunnels.size());
     
+    ayiyaHash.clear();
     for (TicTunnel t: tunnels) {
+      // the tunnel propertie IPv4Pop is not persisted, but bound dynamically to our listening socket
+      t.setIPv4Pop(ipv4pop.getHostAddress());
       try {
+        logger.log(Level.INFO, "adding Ayiya instance for tunnel {0}", t);
         ayiyaHash.put(t.getIpv6Endpoint(), new AyiyaServer(t, ipv4Channel));
       } catch (ConnectionFailedException e) {
         logger.log(Level.WARNING, "Could not create AyiyaServer for configured tunnel", e);

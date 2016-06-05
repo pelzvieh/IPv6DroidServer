@@ -21,12 +21,16 @@
 package de.flyingsnail.ipv6backwardserver.directory;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.Properties;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.logging.Level;
+import java.util.logging.LogManager;
 import java.util.logging.Logger;
 
 import javax.net.ServerSocketFactory;
@@ -61,7 +65,22 @@ public class DirectoryStart implements DirectoryData {
    */
   public static void main(String[] args) {
     try {
-      DirectoryStart tac = new DirectoryStart(3874, 10, null);
+      InputStream configIS = ClassLoader.getSystemResourceAsStream("logging.properties");
+      if (configIS != null)
+        LogManager.getLogManager().readConfiguration(configIS);
+      else
+        log.log(Level.WARNING, "No logging properties found");
+      
+      Properties config = new Properties();
+      config.load(DirectoryStart.class.getResourceAsStream("config.properties"));
+      String ip = config.getProperty("ip");
+      if (ip == null || "".equals(ip))
+        throw new IllegalStateException("No IP configured");
+      String port = config.getProperty("port");
+      if (port == null || "".equals(port))
+        throw new IllegalStateException ("No port configured");
+
+      DirectoryStart tac = new DirectoryStart(Integer.valueOf(port), 10, (Inet4Address)Inet4Address.getByName(ip));
       tac.run();
     } catch (Throwable t) {
       log.log(Level.SEVERE, "Uncaught exception or error in main method. Server aborting", t);

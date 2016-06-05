@@ -71,7 +71,7 @@ public class AyiyaServer {
   private final int mtu;
 
   /** Our IPv6 address, in other words, the IPv6 endpoint of the tunnel. */
-  private Inet6Address ipv6Local;
+  private Inet6Address ipv6Client;
 
   /** The sha1 hash of the tunnel password */
   private byte[] hashedPassword;
@@ -95,12 +95,12 @@ public class AyiyaServer {
   /**
    * The Date when a valid packet was last received from the tunnel (via write method!).
    */
-  private Date lastPacketReceivedTime = new Date();
+  private @NonNull Date lastPacketReceivedTime = new Date();
 
   /**
    * The Date when a valid packet was last returned to be written to the tunnel (via read method!).
    */
-  private Date lastPacketSentTime = new Date();
+  private @NonNull Date lastPacketSentTime = new Date();
 
   /**
    * Our Logger.
@@ -203,7 +203,7 @@ public class AyiyaServer {
       throw new IllegalStateException("Invalid or disabled tunnel specification supplied to Ayiya");
     log = Logger.getLogger(getClass().getName() + "."+tunnel.getTunnelId());
     // copy the information relevant for us in local fields
-    ipv6Local = tunnel.getIpv6Endpoint();
+    ipv6Client = tunnel.getIpv6Endpoint();
     ipv6Pop = tunnel.getIpv6Pop();
     mtu = tunnel.getMtu();
     heartbeatInterval = tunnel.getHeartbeatInterval();
@@ -239,12 +239,16 @@ public class AyiyaServer {
     if (isConnected()) {
       throw new IllegalStateException("This AYIYA is already connected.");
     }
+    
+    // reset the times to avoid sticky time-out
+    this.lastPacketReceivedTime = new Date();
+    this.lastPacketSentTime = this.lastPacketReceivedTime;
 
     // set up the streams
     this.ipv6out = ipv6out;
     this.clientSocketAddress = clientSocketAddress;
 
-    log.info("Ayiya tunnel to client " + clientSocketAddress + " created.");
+    log.log(Level.INFO, "Ayiya tunnel {0} got new connection to client on {1}", new Object[]{ipv6Client, clientSocketAddress});
   }
 
   /**
@@ -262,7 +266,9 @@ public class AyiyaServer {
    * @return boolean, true if connected.
    */
   public boolean isConnected() {
-    if (getLastPacketReceivedTime().getTime() + heartbeatInterval * 1000l < new Date().getTime()) {
+    Date lastPacketReceived = getLastPacketReceivedTime();
+    if (lastPacketReceived != null &&
+        lastPacketReceived.getTime() + heartbeatInterval * 1000l < new Date().getTime()) {
       // timeout, close this server
       close();
       return false;
@@ -339,7 +345,7 @@ public class AyiyaServer {
     // 5th-8th byte: epoch time
     putInt((int) ((new Date().getTime()) / 1000l)).
     // 9th-24th byte: Identity
-    put(ipv6Local.getAddress());
+    put(ipv6Client.getAddress());
 
     // update the message digest with the bytes so far
     int hashStart = bb.position();
@@ -472,7 +478,7 @@ public class AyiyaServer {
     // id. This is considered valid here because in assertion mode we're using this method for
     // our own packets as well.
     Inet6Address sender = precheckPacket(packet, offset, bytecount);
-    if (sender == null || (!sender.equals(ipv6Pop) && !sender.equals(ipv6Local))) {
+    if (sender == null || (!sender.equals(ipv6Pop) && !sender.equals(ipv6Client))) {
       log.log(Level.WARNING, "Received packet from invalid sender id " + sender);
       return false;
     }

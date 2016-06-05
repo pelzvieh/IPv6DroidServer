@@ -8,9 +8,7 @@
 		<artifactId>ipv6backwardserver</artifactId>
 		<version>0.0.1-SNAPSHOT</version>
 	</parent>
-	<groupId>de.flyingsnail.ipv6backwardserver</groupId>
 	<artifactId>ipv6backwarddata</artifactId>
-	<version>0.0.1-SNAPSHOT</version>
 	<name>IPv6BackwardData</name>
 	<url>http://maven.apache.org</url>
 	<properties>
@@ -29,34 +27,45 @@
                     <showDeprecation>true</showDeprecation>
                     <compilerId>javac</compilerId>
                     <!-- <verbose /> -->
-                    <!-- 
-                    <annotationProcessors>
-                        <annotationProcessor>com.mysema.query.apt.jpa.JPAAnnotationProcessor</annotationProcessor>
-                    </annotationProcessors>
-                     -->
                 </configuration>
 			</plugin>
-			<plugin>
-				<groupId>org.codehaus.mojo</groupId>
-				<artifactId>build-helper-maven-plugin</artifactId>
-				<version>1.10</version>
-				<executions>
-					<execution>
-						<id>add-modelgen-generated-sources-directory</id>
-						<phase>generate-sources</phase>
-						<goals>
-							<goal>add-source</goal>
-						</goals>
-						<configuration>
-							<sources>
-								<source>${project.build.directory}/target/generated-sources/annotations</source>
-							</sources>
-						</configuration>
-					</execution>
-				</executions>
-			</plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>2.4.3</version>
+                <configuration>
+                    <filters>
+                        <filter>
+                            <artifact>*:*</artifact>
+                            <excludes>
+                                <exclude>META-INF/*.SF</exclude>
+                                <exclude>META-INF/*.DSA</exclude>
+                                <exclude>META-INF/*.RSA</exclude>
+                            </excludes>
+                        </filter>
+                    </filters>
+                </configuration>
+
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <transformers>
+                                <transformer
+                                    implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                                    <mainClass>de.flyingsnail.ipv6backwarddata.admin.UserAdd</mainClass>
+                                </transformer>
+                            </transformers>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
 		</plugins>
 	</build>
+	
 	<dependencies>
 		<dependency>
 			<groupId>org.eclipse.persistence</groupId>
