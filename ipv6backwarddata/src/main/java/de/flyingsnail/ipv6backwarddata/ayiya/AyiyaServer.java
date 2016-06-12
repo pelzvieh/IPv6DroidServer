@@ -268,7 +268,7 @@ public class AyiyaServer {
   public boolean isConnected() {
     Date lastPacketReceived = getLastPacketReceivedTime();
     if (lastPacketReceived != null &&
-        lastPacketReceived.getTime() + heartbeatInterval * 1000l < new Date().getTime()) {
+        lastPacketReceived.getTime() + (heartbeatInterval + 10 /* we have 10 secs grace period */) * 1000l < new Date().getTime()) {
       // timeout, close this server
       close();
       return false;
