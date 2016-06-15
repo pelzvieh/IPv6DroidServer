@@ -41,6 +41,9 @@ import javax.persistence.criteria.CriteriaBuilder;
 import javax.persistence.criteria.CriteriaQuery;
 import javax.persistence.criteria.Root;
 
+import sun.misc.Signal;
+import sun.misc.SignalHandler;
+
 import org.eclipse.jdt.annotation.NonNull;
 
 import de.flyingsnail.ipv6backwarddata.ayiya.AyiyaServer;
@@ -64,6 +67,7 @@ public class TransporterStart implements AyiyaData {
   /**
    * @param args
    */
+  @SuppressWarnings("restriction")
   public static void main(String[] args) {
     try {
       InputStream configIS = ClassLoader.getSystemResourceAsStream("logging.properties");
@@ -81,6 +85,17 @@ public class TransporterStart implements AyiyaData {
       if (port == null || "".equals(port))
         throw new IllegalStateException ("No port configured");
       TransporterStart ts = new TransporterStart((Inet4Address)Inet4Address.getByName(ip), Integer.valueOf(port));
+      // Setup signal handler for SIGHUP to reload tunnels on kill -HUP
+      Signal.handle(new Signal("HUP"), new SignalHandler () {
+        public void handle(Signal sig) {
+          try {
+            logger.log(Level.INFO, "Catched signal sigup, re-reading tunnel list");
+            ts.readTunnelSet();
+          } catch (IOException e) {
+            logger.log(Level.WARNING, "Failed to re-read tunnel list", e);
+          }
+        }
+      });
       ts.run();
     } catch (Throwable t) {
       logger.log(Level.SEVERE, "Uncaught error in main, server process is aborting", t);
@@ -155,7 +170,7 @@ public class TransporterStart implements AyiyaData {
     
     ayiyaHash.clear();
     for (TicTunnel t: tunnels) {
-      // the tunnel propertie IPv4Pop is not persisted, but bound dynamically to our listening socket
+      // the tunnel property IPv4Pop is not persisted, but bound dynamically to our listening socket
       t.setIPv4Pop(ipv4pop.getHostAddress());
       try {
         logger.log(Level.INFO, "adding Ayiya instance for tunnel {0}", t);

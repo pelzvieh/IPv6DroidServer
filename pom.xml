@@ -1,3 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
   <groupId>de.flyingsnail.ipv6backwardserver</groupId>
@@ -11,6 +12,7 @@
     <resources>
       <resource>
         <directory>src/main/res</directory>
+        <filtering>true</filtering>
         <excludes>
           <exclude>**/.*</exclude>
         </excludes>
@@ -19,6 +21,7 @@
     <testResources>
       <testResource>
         <directory>src/test/res</directory>
+        <filtering>true</filtering>
       </testResource>
     </testResources>
     <plugins>
@@ -60,4 +63,35 @@
   	<module>ipv6backwarddirectory</module>
   	<module>ipv6backwardtransport</module>
   </modules>
+  <profiles>
+    <profile>
+      <id>env-dev</id>
+      <activation>
+        <property>
+          <name>env</name>
+          <value>dev</value>
+        </property>
+      </activation>
+      <build>
+        <filters>
+          <filter>../environment/dev.properties</filter>
+        </filters>
+      </build>
+    </profile>
+    <profile>
+      <id>env-prod</id>
+      <activation>
+        <property>
+          <name>env</name>
+          <value>prod</value>
+        </property>
+      </activation>
+      <build>
+        <filters>
+          <filter>../environment/prod.properties</filter>
+        </filters>
+      </build>
+    </profile>
+
+  </profiles>
 </project>
