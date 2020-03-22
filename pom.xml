@@ -1,97 +1,99 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
-  <groupId>de.flyingsnail.ipv6backwardserver</groupId>
-  <artifactId>ipv6backwardserver</artifactId>
-  <version>0.0.1-SNAPSHOT</version>
-  <name>IPv6 Backward Server</name>
-  <description>A Server that allows to be used with IPv6Droid</description>
+  <artifactId>IPv6DTLSTransport</artifactId>
+  <name>IPv6 DTLS Transport</name>
+  <groupId>de.flyingsnail.ipv6server</groupId>
+  <version>0.1.0.final</version>
+  <properties>
+    <!-- encoding -->
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+    <!--java version -->
+    <java-version>11</java-version>
+
+    <!-- plugin versions -->
+    <compiler-plugin-version>3.3</compiler-plugin-version>
+
+    <!-- dependency versions -->
+    <javaee-api-version>8.0.1-b5</javaee-api-version>
+    <junit-version>4.12</junit-version>
+
+  </properties>
+  <dependencies>
+    <dependency>
+      <groupId>org.eclipse.jdt</groupId>
+      <artifactId>org.eclipse.jdt.annotation</artifactId>
+      <version>2.0.0</version>
+    </dependency>
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <version>${junit-version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.bouncycastle</groupId>
+      <artifactId>bctls-jdk15on</artifactId>
+      <version>1.64</version>
+    </dependency>
+    <dependency>
+      <groupId>org.bouncycastle</groupId>
+      <artifactId>bcpkix-jdk15on</artifactId>
+      <version>1.64</version>
+    </dependency>
+  </dependencies>
   <build>
-    <sourceDirectory>src/main/java</sourceDirectory>
-    <testSourceDirectory>src/test/java</testSourceDirectory>
     <resources>
       <resource>
-        <directory>src/main/res</directory>
+        <directory>src/main/resources</directory>
         <filtering>true</filtering>
-        <excludes>
-          <exclude>**/.*</exclude>
-        </excludes>
       </resource>
     </resources>
-    <testResources>
-      <testResource>
-        <directory>src/test/res</directory>
-        <filtering>true</filtering>
-      </testResource>
-    </testResources>
     <plugins>
       <plugin>
         <artifactId>maven-compiler-plugin</artifactId>
-        <version>3.3</version>
+        <version>${compiler-plugin-version}</version>
         <configuration>
-          <source>1.8</source>
-          <target>1.8</target>
+          <source>${java-version}</source>
+          <target>${java-version}</target>
+          <encoding>${project.build.sourceEncoding}</encoding>
         </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-shade-plugin</artifactId>
+        <version>2.4.3</version>
+        <configuration>
+          <filters>
+            <filter>
+              <artifact>*:*</artifact>
+              <excludes>
+                <exclude>META-INF/*.SF</exclude>
+                <exclude>META-INF/*.DSA</exclude>
+                <exclude>META-INF/*.RSA</exclude>
+              </excludes>
+            </filter>
+          </filters>
+        </configuration>
+
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals>
+              <goal>shade</goal>
+            </goals>
+            <configuration>
+              <transformers>
+                <transformer
+                  implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                  <mainClass>de.flyingsnail.ipv6server.dtlstransporter.TransporterStart</mainClass>
+                </transformer>
+              </transformers>
+            </configuration>
+          </execution>
+        </executions>
       </plugin>
     </plugins>
   </build>
-  <dependencies>
-  	<dependency>
-  		<groupId>org.hsqldb</groupId>
-  		<artifactId>hsqldb</artifactId>
-  		<version>2.3.4</version>
-  	</dependency>
-  	<dependency>
-  		<groupId>mysql</groupId>
-  		<artifactId>mysql-connector-java</artifactId>
-  		<version>5.1.9</version>
-  	</dependency>
-  	<dependency>
-  		<groupId>org.eclipse.persistence</groupId>
-  		<artifactId>eclipselink</artifactId>
-  		<version>2.6.3</version>
-  	</dependency>
-  	<dependency>
-  		<groupId>org.eclipse.jdt</groupId>
-  		<artifactId>org.eclipse.jdt.annotation</artifactId>
-  		<version>2.0.0</version>
-  	</dependency>
-  </dependencies>
-  <packaging>pom</packaging>
-  <modules>
-    <module>ipv6backwarddata</module>
-  	<module>ipv6backwarddirectory</module>
-  	<module>ipv6backwardtransport</module>
-  </modules>
-  <profiles>
-    <profile>
-      <id>env-dev</id>
-      <activation>
-        <property>
-          <name>env</name>
-          <value>dev</value>
-        </property>
-      </activation>
-      <build>
-        <filters>
-          <filter>../environment/dev.properties</filter>
-        </filters>
-      </build>
-    </profile>
-    <profile>
-      <id>env-prod</id>
-      <activation>
-        <property>
-          <name>env</name>
-          <value>prod</value>
-        </property>
-      </activation>
-      <build>
-        <filters>
-          <filter>../environment/prod.properties</filter>
-        </filters>
-      </build>
-    </profile>
-
-  </profiles>
 </project>
