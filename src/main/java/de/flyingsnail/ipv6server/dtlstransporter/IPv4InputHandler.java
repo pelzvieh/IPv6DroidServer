@@ -132,8 +132,13 @@ public class IPv4InputHandler implements Runnable, ConnectedClientHandler {
       while (true) {
         int bytesRead = dtlsTransport.receive(bb.array(), bb.arrayOffset(), bb.capacity(), 60 * 1000);
         if (bytesRead < 0) {
-          logger.info("DTLS session terminated for client " + client.getHostString());
-          break;
+          logger.finer("read 0 bytes within timeout " + client.getHostString());
+          try {
+            Thread.sleep(100L);
+          } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+          }
+          continue;
         }
         bb.limit(bytesRead);
         bb.position(0);

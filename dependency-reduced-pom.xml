@@ -4,7 +4,7 @@
   <groupId>de.flyingsnail.ipv6server</groupId>
   <artifactId>IPv6DTLSTransport</artifactId>
   <name>IPv6 DTLS Transport</name>
-  <version>0.1.0.final</version>
+  <version>0.1.1.final</version>
   <build>
     <resources>
       <resource>

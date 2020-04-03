@@ -220,7 +220,7 @@ public class TransporterStart implements DTLSData {
     this.dtlsHash = new HashMap<>();
 
     TransporterParams params = new TransporterParams();
-    params.heartbeat = 10000;
+    params.heartbeat = 10*60*1000;
     params.ipv4Pop = (Inet4Address) ipv4SocketAddress.getAddress();
     params.portPop = ipv4SocketAddress.getPort();
     params.mtu = 1300;
