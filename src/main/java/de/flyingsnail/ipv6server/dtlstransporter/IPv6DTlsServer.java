@@ -21,6 +21,28 @@
 
 package de.flyingsnail.ipv6server.dtlstransporter;
 
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.security.InvalidAlgorithmParameterException;
+import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
+import java.security.cert.CertPathBuilder;
+import java.security.cert.CertPathBuilderException;
+import java.security.cert.CertificateException;
+import java.security.cert.CertificateFactory;
+import java.security.cert.PKIXBuilderParameters;
+import java.security.cert.PKIXRevocationChecker;
+import java.security.cert.PKIXRevocationChecker.Option;
+import java.security.cert.TrustAnchor;
+import java.security.cert.X509CertSelector;
+import java.security.cert.X509Certificate;
+import java.util.EnumSet;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.Vector;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.crypto.params.AsymmetricKeyParameter;
 import org.bouncycastle.tls.AlertDescription;
@@ -42,12 +64,6 @@ import org.bouncycastle.tls.TlsUtils;
 import org.bouncycastle.tls.crypto.TlsCertificate;
 import org.bouncycastle.tls.crypto.impl.bc.BcTlsCrypto;
 
-import java.io.IOException;
-import java.security.SecureRandom;
-import java.util.Vector;
-import java.util.logging.Level;
-import java.util.logging.Logger;
-
 /**
  * A TlsServer as defined by the Bouncy Castle low level TLS API, sub-class-tuned to serve
  * for the IPv6Transport DTLS implementation. The good news is that it is not strictly necessary
@@ -62,6 +78,8 @@ class IPv6DTlsServer extends DefaultTlsServer {
   private Certificate certChain;
 
   private TlsCertificate trustedCA;
+  
+  private Set<TrustAnchor> trustAnchors;
 
   private AsymmetricKeyParameter privateKey;
 
@@ -70,6 +88,12 @@ class IPv6DTlsServer extends DefaultTlsServer {
   private TlsCertificate clientCert;
 
   private TlsCertificate caCert;
+  
+  private final CertificateFactory certificateFactory;
+
+  private PKIXRevocationChecker revocationChecker;
+
+  private CertPathBuilder certPathBuilder;
 
 
   public IPv6DTlsServer(int heartbeat)  {
@@ -89,7 +113,32 @@ class IPv6DTlsServer extends DefaultTlsServer {
     } catch (IOException e) {
       throw new IllegalStateException("Incorrectly bundled, failure to read private key", e);
     }
-
+    try {
+      certificateFactory = CertificateFactory.getInstance("x.509");
+    } catch (CertificateException e) {
+      throw new IllegalStateException("No x.509 certificate factory available");
+    }
+    
+    trustAnchors = new HashSet<>();
+    try {
+      trustAnchors.add(
+          new TrustAnchor ((X509Certificate) certificateFactory.generateCertificate(
+              new ByteArrayInputStream(trustedCA.getEncoded())),
+              null
+          )
+      );
+    } catch (CertificateException | IOException e) {
+      throw new IllegalStateException("Cannot create trust anchors", e);
+    }
+    
+    try {
+      certPathBuilder = CertPathBuilder.getInstance("PKIX");
+    } catch (NoSuchAlgorithmException e) {
+      throw new IllegalStateException("No PKIX cert path builder available", e);
+    }
+    
+    revocationChecker = (PKIXRevocationChecker)certPathBuilder.getRevocationChecker();
+    revocationChecker.setOptions(EnumSet.of(Option.PREFER_CRLS));
   }
 
   @Override
@@ -187,6 +236,27 @@ class IPv6DTlsServer extends DefaultTlsServer {
     logger.info("Client authenticated by valid certificate chain");
     clientCert = chain [0];
     caCert = chain [chain.length-1];
+
+    X509CertSelector target = new X509CertSelector();
+    try {
+      java.security.cert.X509Certificate myStdCert = (X509Certificate)certificateFactory.generateCertificate(
+          new ByteArrayInputStream(clientCert.getEncoded())
+      );
+      target.setCertificate(myStdCert);
+    } catch (CertificateException e) {
+      throw new TlsFatalAlert(AlertDescription.certificate_unknown, e);
+    }
+    
+    PKIXBuilderParameters params;
+    try {
+      params = new PKIXBuilderParameters(trustAnchors, target);
+      params.addCertPathChecker(revocationChecker);
+      certPathBuilder.build(params);
+    } catch (InvalidAlgorithmParameterException e) {
+      throw new TlsFatalAlert(AlertDescription.internal_error, e);
+    } catch (CertPathBuilderException e) {
+      throw new TlsFatalAlert (AlertDescription.unknown_ca);
+    }
   }
 
   /**
