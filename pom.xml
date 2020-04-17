@@ -5,7 +5,7 @@
   <artifactId>IPv6DTLSTransport</artifactId>
   <name>IPv6 DTLS Transport</name>
   <groupId>de.flyingsnail.ipv6server</groupId>
-  <version>0.2.0.final</version>
+  <version>0.2.1.final</version>
   <properties>
     <!-- encoding -->
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -19,8 +19,57 @@
     <!-- dependency versions -->
     <javaee-api-version>8.0.1-b5</javaee-api-version>
     <junit-version>4.12</junit-version>
-
   </properties>
+  <profiles>
+   <profile>
+     <id>test</id>
+     <build>
+       <plugins>
+         <plugin>
+           <artifactId>maven-antrun-plugin</artifactId>
+           <executions>
+             <execution>
+               <phase>test</phase>
+               <goals>
+                 <goal>run</goal>
+               </goals>
+               <configuration>
+                 <tasks>
+                   <delete file="${project.build.outputDirectory}/de/flyingsnail/ipv6server/dtlstransporter/dtlsserver.cert"/>
+                   <delete file="${project.build.outputDirectory}/de/flyingsnail/ipv6server/dtlstransporter/dtlsserver.key"/>
+                   <copy file="src/main/resources//de/flyingsnail/ipv6server/dtlstransporter/dtlsserver.test.cert"
+                         tofile="${project.build.outputDirectory}/de/flyingsnail/ipv6server/dtlstransporter/dtlsserver.cert"/>
+                   <copy file="src/main/resources//de/flyingsnail/ipv6server/dtlstransporter/dtlsserver.test.key"
+                         tofile="${project.build.outputDirectory}/de/flyingsnail/ipv6server/dtlstransporter/dtlsserver.key"/>
+                 </tasks>
+               </configuration>
+             </execution>
+           </executions>
+         </plugin>
+         <plugin>
+           <artifactId>maven-surefire-plugin</artifactId>
+           <configuration>
+             <skip>true</skip>
+           </configuration>
+         </plugin>
+         <plugin>
+           <artifactId>maven-jar-plugin</artifactId>
+           <executions>
+             <execution>
+               <phase>package</phase>
+               <goals>
+                 <goal>jar</goal>
+               </goals>
+               <configuration>
+                 <classifier>test</classifier>
+               </configuration>
+             </execution>
+           </executions>
+         </plugin>
+       </plugins>
+     </build>
+   </profile>
+  </profiles>
   <dependencies>
     <dependency>
       <groupId>org.eclipse.jdt</groupId>

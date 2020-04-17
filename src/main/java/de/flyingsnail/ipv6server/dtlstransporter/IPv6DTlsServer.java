@@ -28,14 +28,18 @@ import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.security.cert.CertPathBuilder;
 import java.security.cert.CertPathBuilderException;
+import java.security.cert.CertStore;
+import java.security.cert.CertStoreParameters;
 import java.security.cert.CertificateException;
 import java.security.cert.CertificateFactory;
+import java.security.cert.CollectionCertStoreParameters;
 import java.security.cert.PKIXBuilderParameters;
 import java.security.cert.PKIXRevocationChecker;
 import java.security.cert.PKIXRevocationChecker.Option;
 import java.security.cert.TrustAnchor;
 import java.security.cert.X509CertSelector;
 import java.security.cert.X509Certificate;
+import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.Set;
@@ -87,8 +91,6 @@ class IPv6DTlsServer extends DefaultTlsServer {
 
   private TlsCertificate clientCert;
 
-  private TlsCertificate caCert;
-  
   private final CertificateFactory certificateFactory;
 
   private PKIXRevocationChecker revocationChecker;
@@ -230,13 +232,7 @@ class IPv6DTlsServer extends DefaultTlsServer {
       logger.info(" Cert["+i+"] subject: " + entry.getSubject());
     }
 
-    if (!DTLSUtils.areSameCertificate(chain[chain.length-1], trustedCA)) {
-      throw new TlsFatalAlert(AlertDescription.certificate_unknown);
-    }
-    logger.info("Client authenticated by valid certificate chain");
     clientCert = chain [0];
-    caCert = chain [chain.length-1];
-
     X509CertSelector target = new X509CertSelector();
     try {
       java.security.cert.X509Certificate myStdCert = (X509Certificate)certificateFactory.generateCertificate(
@@ -250,9 +246,12 @@ class IPv6DTlsServer extends DefaultTlsServer {
     PKIXBuilderParameters params;
     try {
       params = new PKIXBuilderParameters(trustAnchors, target);
+      CertStoreParameters intermediates = new CollectionCertStoreParameters(Arrays.asList(chain));
+      params.addCertStore(CertStore.getInstance("Collection", intermediates));
       params.addCertPathChecker(revocationChecker);
       certPathBuilder.build(params);
-    } catch (InvalidAlgorithmParameterException e) {
+      logger.info("Client authenticated by valid certificate chain");
+    } catch (NoSuchAlgorithmException | InvalidAlgorithmParameterException e) {
       throw new TlsFatalAlert(AlertDescription.internal_error, e);
     } catch (CertPathBuilderException e) {
       throw new TlsFatalAlert (AlertDescription.unknown_ca);
@@ -270,7 +269,7 @@ class IPv6DTlsServer extends DefaultTlsServer {
    * @return the caCert
    */
   public TlsCertificate getCaCert() {
-    return caCert;
+    return trustedCA;
   }
 
 }

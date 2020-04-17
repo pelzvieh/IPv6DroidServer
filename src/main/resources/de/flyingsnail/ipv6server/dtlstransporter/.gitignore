@@ -1,3 +1,5 @@
 /ca.cert
 /dtlsserver.cert
 /dtlsserver.key
+/dtlsserver.test.cert
+/dtlsserver.test.key
