@@ -254,7 +254,7 @@ class IPv6DTlsServer extends DefaultTlsServer {
     } catch (NoSuchAlgorithmException | InvalidAlgorithmParameterException e) {
       throw new TlsFatalAlert(AlertDescription.internal_error, e);
     } catch (CertPathBuilderException e) {
-      throw new TlsFatalAlert (AlertDescription.unknown_ca);
+      throw new TlsFatalAlert (AlertDescription.unknown_ca, e);
     }
   }
 
