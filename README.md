@@ -29,9 +29,48 @@ You need a (virtual) server with
 (it is currently a hard coded assumption that the IPv6 address chunk is /64; feel free to submit a pull request to make this configurable)
 
 On your server, set up
-* a tun network device with address ::1 of your chunk and prefixlen 64, user set to the user you intent to run the server as
+* a tun network device with address ::1 of your chunk and prefixlen 64, user set to the user you intent to run the server as (see an example below)
 * IPv6 packet forwarding from internet facing interface to the tun device for your IPv6 address chunk
 * tuntopipe to be executable and accessible from one of the locations in your server user's PATH
 * JRE and IPv6DTLSTransport-...jar
 
 Refer to the ipv6dtlstransport.sh script and ipv6dtlstransport.service definition files for how to actually start the server.
+
+# Example network configuration
+In case you're not experienced in setting up tun devices, here's an example on how to do this on a Linux server. We need to make some assumptions which are:
+* the server is running Debian, using the classic network configuration ifupdown
+* you have an /64 IPv6 address chunk to use, let's assume it is 2a06:dead:beef:affe::/64
+* your server is going to run under the user ipv6server
+
+Additional prerequisites are 
+* a constant, static IPv4 address of your server, routed to a given network interface
+* a working IPv6 setup of the server itself, including a routed IPv6 address on a given network interace
+* routing set up such as that all traffic to 2a06:dead:beef:affe::/64 is sent to this interface
+* a compute service that allows to set up a tun device (it might be a virtual machine service, might be running in the cloud, but a container service - for example - would require very specific set up from the provider)
+
+These prerequisites are provided by your internet provider, plus the standard configuration of your server (usually DHCP for IPv4 interface, and SLAAC for IPv6 interface).
+
+In this scenario, you have to add tun0 configuration to /etc/network/interfaces (or create a file with this content inside /etc/network/interfaces.d):
+
+    auto tun0
+    iface tun0 inet6 static
+        pre-up ip tuntap add dev tun0 mode tun user ipv6server
+        address 2a06:dead:beef:affe::1
+        netmask 64
+        scope global
+        accept_ra 0
+        autoconf 0
+        post-down ip link del tun0
+
+The command
+
+    ifup tun0
+
+should succeed.
+
+If you're facing an error message like
+
+    open: No such file or directory
+    ifup: failed to bring up tun0
+
+that might indicate that you're running within a linux container that lacks privilege to create device nodes and alternative setup of device inheritance. See the documentation of your container solution or ask your provider to extend the setup.
