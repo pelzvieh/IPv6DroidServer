@@ -141,6 +141,14 @@ class IPv6DTlsServer extends DefaultTlsServer {
     
     revocationChecker = (PKIXRevocationChecker)certPathBuilder.getRevocationChecker();
     revocationChecker.setOptions(EnumSet.of(Option.PREFER_CRLS));
+    
+    // self-check configuration: we would need to accept our own certificate!
+    try {
+      notifyClientCertificate(certChain);
+    } catch (Exception e) {
+      throw new IllegalStateException("I wouldn't even trust myself", e);
+    }
+    logger.info("Constructed OK");
   }
 
   @Override

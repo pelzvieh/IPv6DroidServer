@@ -155,7 +155,7 @@ public class IPv6InputHandler implements Runnable, BufferWriter {
         lengthBytes.clear();
         int bytesRead = is.read(lengthBytes.array(), lengthBytes.arrayOffset(), 2);
         if (bytesRead < 0)
-          break;
+          throw new IllegalStateException ("EOF flagged from input stream at begin of new data block");
         if (bytesRead != 2)
           throw new IllegalStateException ("Did not read two bytes of length indicator - probably lost stream sync");
         lengthBytes.limit(2);
@@ -168,7 +168,7 @@ public class IPv6InputHandler implements Runnable, BufferWriter {
         buffer.limit(buffer.position() + length);
         bytesRead = is.read(buffer.array(), buffer.arrayOffset() + buffer.position(), buffer.remaining());
         if (bytesRead < 0)
-          break;
+          throw new IllegalStateException ("EOF flagged from input stream during read of data block");
         if (bytesRead != length)
           throw new IllegalStateException ("Did not read indicated number of bytes of IP package - probably lost stream sync");
         logger.finer(() -> "Received packet, size " + length);
@@ -186,6 +186,7 @@ public class IPv6InputHandler implements Runnable, BufferWriter {
     } catch (Exception e) {
       logger.log(Level.WARNING, "Exception in IPv6 reader thread", e);
     } finally {
+      logger.log(Level.INFO, "IPv6 listener stopping");
       try {
         inputStream.get().close();
       } catch (IOException | InterruptedException | ExecutionException e) {
