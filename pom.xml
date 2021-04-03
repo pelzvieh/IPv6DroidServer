@@ -19,7 +19,7 @@
     <!-- dependency versions -->
     <javaee-api-version>8.0.1-b5</javaee-api-version>
     <junit-version>4.13.1</junit-version>
-    <bouncycastle-version>1.67</bouncycastle-version>
+    <bouncycastle-version>1.68</bouncycastle-version>
   </properties>
   <profiles>
    <profile>
