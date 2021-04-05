@@ -4,7 +4,7 @@
   <groupId>de.flyingsnail.ipv6server</groupId>
   <artifactId>IPv6DTLSTransport</artifactId>
   <name>IPv6 DTLS Transport</name>
-  <version>0.2.3-SNAPSHOT</version>
+  <version>0.2.4-SNAPSHOT</version>
   <build>
     <resources>
       <resource>
@@ -105,9 +105,9 @@
   </profiles>
   <properties>
     <java-version>11</java-version>
-    <bouncycastle-version>1.67</bouncycastle-version>
+    <bouncycastle-version>1.68</bouncycastle-version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <junit-version>4.12</junit-version>
+    <junit-version>4.13.1</junit-version>
     <compiler-plugin-version>3.3</compiler-plugin-version>
     <javaee-api-version>8.0.1-b5</javaee-api-version>
   </properties>

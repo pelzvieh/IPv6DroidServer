@@ -28,6 +28,7 @@ import java.net.Inet4Address;
 import java.net.Inet6Address;
 import java.net.InetSocketAddress;
 import java.rmi.NoSuchObjectException;
+import java.security.Security;
 import java.util.HashMap;
 import java.util.Properties;
 import java.util.logging.Level;
@@ -35,6 +36,7 @@ import java.util.logging.LogManager;
 import java.util.logging.Logger;
 
 import org.bouncycastle.tls.DTLSTransport;
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.eclipse.jdt.annotation.NonNull;
 
 import sun.misc.Signal;
@@ -134,6 +136,10 @@ public class TransporterStart implements DTLSData {
           System.exit(3);
         }
       }
+      
+      // register BouncyCastle provider
+      Security.addProvider(new BouncyCastleProvider());
+      System.setProperty("org.bouncycastle.x509.enableCRLDP", "true");
 
       // construct our instance      
       TransporterStart ts = new TransporterStart();
@@ -151,6 +157,10 @@ public class TransporterStart implements DTLSData {
               );
         }
       );
+      
+      // provoke check of certificate chain by constructing an otherwise unused server instance
+      final IPv6DTlsServer server = new IPv6DTlsServer(1000);
+      logger.finer(()->"Construction of test IPv6DTlsServer succeeded: " + server);
       
       // now run until something terminal happens
       int exitCode = ts.run();

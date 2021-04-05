@@ -21,28 +21,9 @@
 
 package de.flyingsnail.ipv6server.dtlstransporter;
 
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.security.InvalidAlgorithmParameterException;
-import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
-import java.security.cert.CertPathBuilder;
-import java.security.cert.CertPathBuilderException;
-import java.security.cert.CertStore;
-import java.security.cert.CertStoreParameters;
-import java.security.cert.CertificateException;
-import java.security.cert.CertificateFactory;
-import java.security.cert.CollectionCertStoreParameters;
-import java.security.cert.PKIXBuilderParameters;
-import java.security.cert.PKIXRevocationChecker;
-import java.security.cert.PKIXRevocationChecker.Option;
-import java.security.cert.TrustAnchor;
-import java.security.cert.X509CertSelector;
-import java.security.cert.X509Certificate;
-import java.util.Arrays;
-import java.util.EnumSet;
-import java.util.HashSet;
-import java.util.Set;
+import java.util.Base64;
 import java.util.Vector;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -78,24 +59,18 @@ import org.bouncycastle.tls.crypto.impl.bc.BcTlsCrypto;
 class IPv6DTlsServer extends DefaultTlsServer {
 
   private Logger logger = Logger.getLogger(IPv6DTlsServer.class.getName());
+  
+  private ChainChecker chainChecker;
 
-  private Certificate certChain;
+  private Certificate serverCertChain;
 
   private TlsCertificate trustedCA;
   
-  private Set<TrustAnchor> trustAnchors;
-
   private AsymmetricKeyParameter privateKey;
 
   private int heartbeat;
 
   private TlsCertificate clientCert;
-
-  private final CertificateFactory certificateFactory;
-
-  private PKIXRevocationChecker revocationChecker;
-
-  private CertPathBuilder certPathBuilder;
 
 
   public IPv6DTlsServer(int heartbeat)  {
@@ -103,49 +78,38 @@ class IPv6DTlsServer extends DefaultTlsServer {
     this.heartbeat = heartbeat;
     String[] caResourceNames = new String[]{"dtlsserver.cert", "ca.cert"};
     try {
-      certChain = DTLSUtils.loadCertificateChain (getCrypto(), caResourceNames);
+      serverCertChain = DTLSUtils.loadCertificateChain (getCrypto(), caResourceNames);
     } catch (IOException e) {
       throw new IllegalStateException("Incorrectly bundled, failure to read certificates", e);
     }
 
-    trustedCA = certChain.getCertificateAt(caResourceNames.length-1);
+    trustedCA = serverCertChain.getCertificateAt(caResourceNames.length-1);
 
     try {
       privateKey = DTLSUtils.loadBcPrivateKeyResource("dtlsserver.key");
     } catch (IOException e) {
       throw new IllegalStateException("Incorrectly bundled, failure to read private key", e);
     }
-    try {
-      certificateFactory = CertificateFactory.getInstance("x.509");
-    } catch (CertificateException e) {
-      throw new IllegalStateException("No x.509 certificate factory available");
-    }
     
-    trustAnchors = new HashSet<>();
-    try {
-      trustAnchors.add(
-          new TrustAnchor ((X509Certificate) certificateFactory.generateCertificate(
-              new ByteArrayInputStream(trustedCA.getEncoded())),
-              null
-          )
-      );
-    } catch (CertificateException | IOException e) {
-      throw new IllegalStateException("Cannot create trust anchors", e);
-    }
-    
-    try {
-      certPathBuilder = CertPathBuilder.getInstance("PKIX");
-    } catch (NoSuchAlgorithmException e) {
-      throw new IllegalStateException("No PKIX cert path builder available", e);
-    }
-    
-    revocationChecker = (PKIXRevocationChecker)certPathBuilder.getRevocationChecker();
-    revocationChecker.setOptions(EnumSet.of(Option.PREFER_CRLS));
+    chainChecker = new ChainChecker(trustedCA);
     
     // self-check configuration: we would need to accept our own certificate!
     try {
-      notifyClientCertificate(certChain);
+      chainChecker.checkChain(serverCertChain.getCertificateList());
     } catch (Exception e) {
+      try {
+        logger.fine("Failed to verify cert chain of server itself:\n" 
+            + "\nServer -------\n-----BEGIN CERTIFICATE-----\n" 
+            + Base64.getEncoder().encodeToString(serverCertChain.getCertificateAt(0).getEncoded()) 
+            + "\n-----END CERTIFICATE-----\n"
+            + "\n\nCA -------\n-----BEGIN CERTIFICATE-----\n" 
+            + Base64.getEncoder().encodeToString(trustedCA.getEncoded()) 
+            + "\n-----END CERTIFICATE-----\n"
+            );
+      } catch (IOException e1) {
+        logger.log(Level.WARNING, "Cannot generated diagnostics for mal-configuration", e1);
+      }
+
       throw new IllegalStateException("I wouldn't even trust myself", e);
     }
     logger.info("Constructed OK");
@@ -186,7 +150,7 @@ class IPv6DTlsServer extends DefaultTlsServer {
   @Override
   protected TlsCredentialedDecryptor getRSAEncryptionCredentials() throws IOException {
     return DTLSUtils.loadEncryptionCredentials(context,
-        certChain,
+        serverCertChain,
         privateKey);
   }
 
@@ -198,7 +162,7 @@ class IPv6DTlsServer extends DefaultTlsServer {
       return DTLSUtils.loadSignerCredentials(context,
           clientSigAlgs,
           SignatureAlgorithm.rsa,
-          certChain,
+          serverCertChain,
           privateKey);
     } catch (NoSupportedAlgorithm noSupportedAlgorithm) {
       throw new IOException(noSupportedAlgorithm);
@@ -230,40 +194,20 @@ class IPv6DTlsServer extends DefaultTlsServer {
 
   @Override
   public void notifyClientCertificate(Certificate clientCertificate)
-      throws IOException {
+      throws IOException, TlsFatalAlert {
     TlsCertificate[] chain = clientCertificate.getCertificateList();
     logger.fine("Cert chain received of "+chain.length);
     if (chain.length == 0)
       throw new TlsFatalAlert(AlertDescription.certificate_required);
-    for (int i = 0; i < chain.length; i++) {
-      org.bouncycastle.asn1.x509.Certificate entry = org.bouncycastle.asn1.x509.Certificate.getInstance(chain[i].getEncoded());
-      logger.info(" Cert["+i+"] subject: " + entry.getSubject());
+    if (logger.isLoggable(Level.INFO)) {
+      for (int i = 0; i < chain.length; i++) {
+        org.bouncycastle.asn1.x509.Certificate entry = org.bouncycastle.asn1.x509.Certificate.getInstance(chain[i].getEncoded());
+        logger.info(" Cert["+i+"] subject: " + entry.getSubject());
+      }
     }
 
+    chainChecker.checkChain(chain);
     clientCert = chain [0];
-    X509CertSelector target = new X509CertSelector();
-    try {
-      java.security.cert.X509Certificate myStdCert = (X509Certificate)certificateFactory.generateCertificate(
-          new ByteArrayInputStream(clientCert.getEncoded())
-      );
-      target.setCertificate(myStdCert);
-    } catch (CertificateException e) {
-      throw new TlsFatalAlert(AlertDescription.certificate_unknown, e);
-    }
-    
-    PKIXBuilderParameters params;
-    try {
-      params = new PKIXBuilderParameters(trustAnchors, target);
-      CertStoreParameters intermediates = new CollectionCertStoreParameters(Arrays.asList(chain));
-      params.addCertStore(CertStore.getInstance("Collection", intermediates));
-      params.addCertPathChecker(revocationChecker);
-      certPathBuilder.build(params);
-      logger.info("Client authenticated by valid certificate chain");
-    } catch (NoSuchAlgorithmException | InvalidAlgorithmParameterException e) {
-      throw new TlsFatalAlert(AlertDescription.internal_error, e);
-    } catch (CertPathBuilderException e) {
-      throw new TlsFatalAlert (AlertDescription.unknown_ca, e);
-    }
   }
 
   /**
