@@ -110,7 +110,7 @@ public class IPv4InputHandler implements Runnable, ConnectedClientHandler {
     }
     
     // check source IP address
-    byte[] rawIpAddress = new byte[64];
+    byte[] rawIpAddress = new byte[16];
     bb.slice().position(8).get(rawIpAddress);
     InetAddress sourceIp = Inet6Address.getByAddress(rawIpAddress);
     if (!clientAddress.equals(sourceIp)) {
