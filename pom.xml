@@ -146,4 +146,8 @@
       </plugin>
     </plugins>
   </build>
+  <scm>
+    <connection>scm:git:https://github.com/pelzvieh/IPv6DroidServer</connection>
+    <url>https://github.com/pelzvieh/IPv6DroidServer</url>
+  </scm>
 </project>
