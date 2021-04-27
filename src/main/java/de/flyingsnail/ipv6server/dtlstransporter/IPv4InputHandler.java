@@ -21,6 +21,7 @@ package de.flyingsnail.ipv6server.dtlstransporter;
 
 import java.io.IOException;
 import java.net.Inet6Address;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.rmi.NoSuchObjectException;
@@ -78,15 +79,16 @@ public class IPv4InputHandler implements Runnable, ConnectedClientHandler {
 
   /**
    * Write next packet from the tunnel to the IPv6 device.
+   * @param clientAddress an Inet6Address giving the client's address according to its certificate. This is the only allowed source address.
    * @param bb a ByteBuffer representing a read packet, with current position set to beginning of the <b>payload</b> and end set to end of payload.
    * @return a boolean indicating if the packet was correctly signed
    * @throws IOException in case of network problems (probably temporary in nature)
    * @throws IllegalArgumentException in case that the supplied ByteBuffer is trivially invalid. Packets failing to verify
    *    signature are not flagged by Exception, but instead by returning false and increased invalidPacketCounter.
    */
-  public boolean writeToIPv6(ByteBuffer bb) throws IOException, IllegalArgumentException {
+  public boolean writeToIPv6(Inet6Address clientAddress, ByteBuffer bb) throws IOException, IllegalArgumentException {
     if (ipv6out == null)
-      throw new IllegalStateException("write() called on unconnected Ayiya");
+      throw new IllegalStateException("write() called on unconnected handler");
 
     int bytecount = bb.limit() - bb.position();
 
@@ -101,23 +103,34 @@ public class IPv4InputHandler implements Runnable, ConnectedClientHandler {
     lastPacketReceivedTime = new Date();
 
     // check buffer content
-    if ((bb.get(0) >> 4) != 6) {
-      validPacketReceived = true;
-      ipv6out.write (bb);
-      return true;
-    } else {
-      invalidPacketCounter = getInvalidPacketCounter() + 1;
+    if ((bb.get(0) >>> 4) != 6) {
+      logger.log(Level.INFO, "Received non-IPv6 package");
+      invalidPacketCounter++;
       return false;
     }
+    
+    // check source IP address
+    byte[] rawIpAddress = new byte[64];
+    bb.slice().position(8).get(rawIpAddress);
+    InetAddress sourceIp = Inet6Address.getByAddress(rawIpAddress);
+    if (!clientAddress.equals(sourceIp)) {
+      logger.log(Level.WARNING, "Received IPv6 package from Client {0} with source IP {1}", new Object[] {clientAddress, sourceIp});
+      invalidPacketCounter++;
+      return false;
+    }
+    validPacketReceived = true;
+    ipv6out.write (bb);
+    logger.finer("Written packet");
+    return true;
   }
 
   @Override
   public void handle(IPv6DTlsServer dtlsServer, DTLSTransport dtlsTransport, InetSocketAddress client) {
-    Inet6Address clientAddress;
+    Inet6Address clientAddress = null;
     try {
       clientAddress = DTLSUtils.getIpv6AlternativeName(dtlsServer.getClientCert());
     } catch (IOException e) {
-      clientAddress = null;
+      logger.log(Level.WARNING, "Received package from authenticated client, not carrying an IPv6Address in its client cert", e);
       return;
     }
     try {
@@ -143,8 +156,8 @@ public class IPv4InputHandler implements Runnable, ConnectedClientHandler {
         bb.limit(bytesRead);
         bb.position(0);
         
-        logger.finer("Writing package");
-        ipv6out.write(bb);
+        logger.finest("Writing package");
+        writeToIPv6(clientAddress, bb);
       }
     } catch (TlsTimeoutException e) {
       logger.log(Level.INFO, "Client {0}/{1} had timeout", new Object[] {client.getHostString(), clientAddress});

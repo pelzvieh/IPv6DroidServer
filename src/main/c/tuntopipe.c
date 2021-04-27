@@ -88,7 +88,6 @@ int cread(int fd, char *buf, int n){
 
   if((nread=read(fd, buf, n)) < 0){
     perror("Reading data");
-    exit(1);
   }
   return nread;
 }
@@ -103,7 +102,6 @@ int cwrite(int fd, char *buf, int n){
 
   if((nwrite=write(fd, buf, n)) < 0){
     perror("Writing data");
-    exit(1);
   }
   return nwrite;
 }
@@ -282,6 +280,10 @@ int main(int argc, char *argv[]) {
       /* read packet */
       nread = read_n(STDIN_FILENO, buffer, ntohs(plength));
       do_debug("PIPE2TAP %lu: Read %d bytes from STDIN_FILENO\n", pipe2tap, nread);
+      if(nread == 0) {
+        /* ctrl-c at the other end */
+        break;
+      }
 
       /* now buffer[] contains a full packet or frame, write it into the tun/tap interface */ 
       nwrite = cwrite(tap_fd, buffer, nread);
