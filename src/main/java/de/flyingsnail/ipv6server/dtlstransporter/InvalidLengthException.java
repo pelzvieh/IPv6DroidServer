@@ -34,38 +34,38 @@ public class InvalidLengthException extends InvalidIPv4PacketException {
   private static final long serialVersionUID = -3161587344400839136L;
 
   /**
-   * 
+   * Default constructor
    */
   public InvalidLengthException() {
   }
 
   /**
-   * @param message
+   * @param message a String describing the problem
    */
   public InvalidLengthException(String message) {
     super(message);
   }
 
   /**
-   * @param cause
+   * @param cause a Throwable indicating a lower level Exception that led to this exception
    */
   public InvalidLengthException(Throwable cause) {
     super(cause);
   }
 
   /**
-   * @param message
-   * @param cause
+   * @param message a String describing the problem
+   * @param cause a Throwable indicating a lower level Exception that led to this exception
    */
   public InvalidLengthException(String message, Throwable cause) {
     super(message, cause);
   }
 
   /**
-   * @param message
-   * @param cause
-   * @param enableSuppression
-   * @param writableStackTrace
+   * @param message a String describing the problem
+   * @param cause a Throwable indicating a lower level Exception that led to this exception
+   * @param enableSuppression a boolean describing if suppression should be enabled :-)
+   * @param writableStackTrace a boolean describing if the stack trace is writable
    */
   public InvalidLengthException(String message, Throwable cause,
       boolean enableSuppression, boolean writableStackTrace) {

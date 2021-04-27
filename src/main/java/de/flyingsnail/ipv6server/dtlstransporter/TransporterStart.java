@@ -221,8 +221,7 @@ public class TransporterStart implements DTLSData {
   }
 
   /**
-   * @param ipv4pop the Inet4Address to bind to as incoming endpoint
-   * @param ipv4port the int giving the port number to listen to for incoming packets.
+   * Constructor.
    * @throws IOException in case of network problems
    */
   public TransporterStart() throws IOException  {

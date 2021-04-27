@@ -12,6 +12,7 @@
 
     <!--java version -->
     <java-version>11</java-version>
+    <java.version>${java-version}</java.version>
 
     <!-- plugin versions -->
     <compiler-plugin-version>3.3</compiler-plugin-version>

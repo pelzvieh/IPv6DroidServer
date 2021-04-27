@@ -40,7 +40,7 @@ public interface BufferWriter {
         ipv6out.flush();
 
    * @param bb a ByteBuffer with position set to the beginning and limit() set to the end of the area of interest.
-   * @throws IOException
+   * @throws IOException in case of a communication problem
    */
   public void write(ByteBuffer bb) throws IOException;
 

@@ -39,32 +39,32 @@ public class InvalidHeaderStructure extends InvalidIPv4PacketException {
   }
 
   /**
-   * @param message
+   * @param message a String describing the problem
    */
   public InvalidHeaderStructure(String message) {
     super(message);
   }
 
   /**
-   * @param cause
+   * @param cause a Throwable indicating a lower level Exception that led to this exception
    */
   public InvalidHeaderStructure(Throwable cause) {
     super(cause);
   }
 
   /**
-   * @param message
-   * @param cause
+   * @param message a String describing the problem
+   * @param cause a Throwable indicating a lower level Exception that led to this exception
    */
   public InvalidHeaderStructure(String message, Throwable cause) {
     super(message, cause);
   }
 
   /**
-   * @param message
-   * @param cause
-   * @param enableSuppression
-   * @param writableStackTrace
+   * @param message a String describing the problem
+   * @param cause a Throwable indicating a lower level Exception that led to this exception
+   * @param enableSuppression a boolean describing if suppression should be enabled :-)
+   * @param writableStackTrace a boolean describing if the stack trace is writable
    */
   public InvalidHeaderStructure(String message, Throwable cause,
       boolean enableSuppression, boolean writableStackTrace) {

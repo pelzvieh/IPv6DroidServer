@@ -20,14 +20,14 @@ public interface DTLSData {
   /**
    * Register an established DTLS session with the corresponding IPv6Address
    * @param sender the Inet6Address of the corresponding IPv6 address of this client
-   * @param server the DTLSTransport representing the connection.
+   * @param dtls the DTLSTransport representing the connection.
    */
   void putServer(@NonNull Inet6Address sender, @NonNull DTLSTransport dtls);
   
   /**
    * Remove an DTLS session from the registry (probably after the session ended).
    * @param sender the Inet6Address identifying the client.
-   * @return 
+   * @return the DTLSTransport that was removed
    */
   DTLSTransport removeServer(@NonNull Inet6Address sender);
  
