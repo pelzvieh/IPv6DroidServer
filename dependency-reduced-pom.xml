@@ -4,10 +4,9 @@
   <groupId>de.flyingsnail.ipv6server</groupId>
   <artifactId>IPv6DTLSTransport</artifactId>
   <name>IPv6 DTLS Transport</name>
-  <version>0.2.5</version>
+  <version>0.2.6-SNAPSHOT</version>
   <scm>
     <connection>scm:git:https://github.com/pelzvieh/IPv6DroidServer</connection>
-    <tag>IPv6DTLSTransport-0.2.5</tag>
     <url>https://github.com/pelzvieh/IPv6DroidServer</url>
   </scm>
   <build>
@@ -109,7 +108,7 @@
     </profile>
   </profiles>
   <properties>
-    <java-version>11</java-version>
+    <java-version>16</java-version>
     <bouncycastle-version>1.68</bouncycastle-version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <junit-version>4.13.1</junit-version>

@@ -267,9 +267,9 @@ class DTLSUtils {
           if (generalName.getTagNo() == GeneralName.iPAddress) {
               InetAddress inetAddress = InetAddress.getByAddress(
                       new BigInteger(generalName.getName().toString().substring(1), 16).toByteArray());
-              if (inetAddress instanceof Inet6Address) {
+              if (inetAddress instanceof Inet6Address inet6Address) {
                   logger.fine(()->"Supplied cert contains IPv6 subject alternative name: " + inetAddress);
-                  return (Inet6Address) inetAddress;
+                  return inet6Address;
               } else {
                   logger.finer(()->"Found subject alternative name IP address, but not IPv6: " + inetAddress);
               }
