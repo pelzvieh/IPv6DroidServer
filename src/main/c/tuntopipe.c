@@ -34,12 +34,15 @@
 #include <fcntl.h>
 #include <arpa/inet.h> 
 #include <sys/select.h>
-#include <sys/time.h>
+#include <time.h>
 #include <errno.h>
 #include <stdarg.h>
 
+
+void my_err(char *msg, ...);
+
 /* buffer for reading from tun/tap interface, must be >= 1500 */
-#define BUFSIZE 2000   
+#define BUFSIZE 65536
 
 int debug;
 char *progname;
@@ -88,6 +91,7 @@ int cread(int fd, char *buf, int n){
 
   if((nread=read(fd, buf, n)) < 0){
     perror("Reading data");
+    exit(1);
   }
   return nread;
 }
@@ -102,6 +106,7 @@ int cwrite(int fd, char *buf, int n){
 
   if((nwrite=write(fd, buf, n)) < 0){
     perror("Writing data");
+    my_err("Error writing %d bytes to file descriptor %d", n, fd);
   }
   return nwrite;
 }
@@ -115,9 +120,9 @@ int read_n(int fd, char *buf, int n) {
   int nread, left = n;
 
   while(left > 0) {
-    if ((nread = cread(fd, buf, left)) == 0){
-      return 0 ;      
-    }else {
+    if ((nread = cread(fd, buf, left)) <= 0){
+      return 0;      
+    } else {
       left -= nread;
       buf += nread;
     }
@@ -144,6 +149,15 @@ void do_debug(char *msg, ...){
  **************************************************************************/
 void my_err(char *msg, ...) {
 
+  /* print a time stamp */
+  time_t t = time(NULL);
+  struct tm *tm = localtime(&t);
+  char timebuffer[128];
+  if (strftime (timebuffer, sizeof(timebuffer), "%c ", tm) > 0) {
+    fputs (timebuffer, stderr);
+  }
+
+  /* now print the message including format conversion and va_args */
   va_list argp;
   
   va_start(argp, msg);
@@ -155,7 +169,7 @@ void my_err(char *msg, ...) {
  * usage: prints usage and exits.                                         *
  **************************************************************************/
 void usage(void) {
-  fprintf(stderr, "Usage:\n");
+  my_err("Usage:\n");
   fprintf(stderr, "%s -i <ifacename> [-u|-a] [-d]\n", progname);
   fprintf(stderr, "%s -h\n", progname);
   fprintf(stderr, "\n");
@@ -252,9 +266,17 @@ int main(int argc, char *argv[]) {
       /* data from tun/tap: just read it and write it to stdout */
       
       nread = cread(tap_fd, buffer, BUFSIZE);
+      if (nread <= 0) {
+        my_err("Read %d bytes from tap\n", nread);
+        continue;
+      }
 
       tap2pipe++;
-      do_debug("TAP2PIPE %lu: Read %d bytes from the tap interface\n", tap2pipe, nread);
+      if ((tap2pipe & 0xffff) == 1) {
+        my_err ("tap2pipe reached %lu and read %d bytes\n", tap2pipe, nread);
+      } else  {
+        do_debug("TAP2PIPE %lu: Read %d bytes from the tap interface\n", tap2pipe, nread);
+      }
 
       /* write length + packet */
       plength = htons(nread);
@@ -270,12 +292,19 @@ int main(int argc, char *argv[]) {
 
       /* Read length */      
       nread = read_n(STDIN_FILENO, (char *)&plength, sizeof(plength));
-      if(nread == 0) {
+      if (nread == 0) {
         /* ctrl-c at the other end */
         break;
       }
+      if (plength > BUFSIZE) {
+        my_err ("Read number of bytes %u exceeds maximum buffer length %u - aborting communication\n", plength, BUFSIZE);
+        exit(2);
+      }
 
       pipe2tap++;
+      if ((pipe2tap & 0xffff) == 1) {
+        my_err ("pipe2tap reached %lu and read %d bytes\n", pipe2tap, plength);
+      }
 
       /* read packet */
       nread = read_n(STDIN_FILENO, buffer, ntohs(plength));
