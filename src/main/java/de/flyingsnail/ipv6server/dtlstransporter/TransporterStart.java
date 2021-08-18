@@ -227,6 +227,8 @@ public class TransporterStart implements DTLSData {
   public TransporterStart() throws IOException  {
     super();
     this.dtlsHash = new HashMap<>();
+    // close all active sessions if the vm shuts down
+    Runtime.getRuntime().addShutdownHook(new Thread(()->exitHandler()));
 
     TransporterParams params = new TransporterParams();
     params.heartbeat = 10*60*1000;
@@ -266,6 +268,7 @@ public class TransporterStart implements DTLSData {
           thread.join(10000);
         } catch (InterruptedException e) {
           logger.log(Level.SEVERE, "Interrupt in main thread");
+          exitHandler();
           Thread.currentThread().interrupt();
           return;
         }
@@ -275,6 +278,21 @@ public class TransporterStart implements DTLSData {
       }
   }
 
+
+  /**
+   * Close all active sessions.
+   */
+  private void exitHandler() {
+    logger.info("Exit handler activated, closing all sessions");
+    for (Inet6Address address: dtlsHash.keySet()) {
+      try {
+        getServer(address).close();
+      } catch (IOException e) {
+        logger.warning("Shutting down session %s failed".formatted(address.toString()));
+      }
+      removeServer(address);
+    }
+  }
 
   /* (non-Javadoc)
    * @see de.flyingsnail.ipv6backwardserver.transporter.AyiyaData#getServer(java.net.Inet6Address)
