@@ -24,6 +24,7 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Path;
 import java.net.Inet4Address;
 import java.net.Inet6Address;
 import java.net.InetSocketAddress;
@@ -91,8 +92,8 @@ public class TransporterStart implements DTLSData {
   
   private static Source source;
   
-  private static File input = null;
-  private static File output = null;
+  private static Path input = null;
+  private static Path output = null;
 
 
 
@@ -125,13 +126,14 @@ public class TransporterStart implements DTLSData {
           System.err.println("Syntax: TransporterStart /dev/fd/[input fd] /dev/fd/[output fd]");
           System.exit(1);
         }
-        input = new File(args[0]);
-        if (!input.canRead()) {
+        
+        input = Path.of(args[0]);
+        if (!input.toFile().canRead()) {
           System.err.println("Cannot read from " + args[0]);
           System.exit(2);
         }
-        output = new File (args[1]);
-        if (!output.canWrite()) {
+        output = Path.of (args[1]);
+        if (!output.toFile().canWrite()) {
           System.err.println("Cannot write to " + args[1]);
           System.exit(3);
         }
@@ -244,7 +246,7 @@ public class TransporterStart implements DTLSData {
    */
   private int run() {
     IPv6InputHandler ipv6InputHandler = (source == Source.TUNTOPIPE) ? 
-        new IPv6InputHandler(this, "tun0", passThrough) :
+        new IPv6InputHandler(this, "tun0", passThrough) : 
         new IPv6InputHandler(this, input, output, passThrough);
     logger.info("IPv6InputHandler is constructed");
 
@@ -288,7 +290,7 @@ public class TransporterStart implements DTLSData {
       try {
         getServer(address).close();
       } catch (IOException e) {
-        logger.warning("Shutting down session %s failed".formatted(address.toString()));
+        logger.warning(() -> "Shutting down session " + address.toString() + " failed.");
       }
       removeServer(address);
     }

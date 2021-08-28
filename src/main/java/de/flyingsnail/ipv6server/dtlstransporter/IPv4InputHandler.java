@@ -41,7 +41,6 @@ import org.eclipse.jdt.annotation.NonNull;
  *
  */
 public class IPv4InputHandler implements Runnable, ConnectedClientHandler {
-  private static final int OVERHEAD = 10;
   private @NonNull DTLSData dtlsData;
   private @NonNull DTLSListener dtlsServer;
   private Logger logger = Logger.getLogger(getClass().getName());
@@ -80,7 +79,8 @@ public class IPv4InputHandler implements Runnable, ConnectedClientHandler {
   /**
    * Write next packet from the tunnel to the IPv6 device.
    * @param clientAddress an Inet6Address giving the client's address according to its certificate. This is the only allowed source address.
-   * @param bb a ByteBuffer representing a read packet, with current position set to beginning of the <b>payload</b> and end set to end of payload.
+   * @param bb a ByteBuffer containing a read packet (fixed IPv6 header plus payload), with current position set to 
+   *        beginning of header, and limit set to end of payload.
    * @return a boolean indicating if the packet was correctly signed
    * @throws IOException in case of network problems (probably temporary in nature)
    * @throws IllegalArgumentException in case that the supplied ByteBuffer is trivially invalid. Packets failing to verify
@@ -90,20 +90,14 @@ public class IPv4InputHandler implements Runnable, ConnectedClientHandler {
     if (ipv6out == null)
       throw new IllegalStateException("write() called on unconnected handler");
 
-    int bytecount = bb.limit() - bb.position();
-
     // first check some pathological results for stability reasons
-    if (bytecount < OVERHEAD) {
-      throw new IllegalArgumentException("received too short packet", null);
-    } else if (bytecount == bb.capacity()) {
-      logger.log(Level.WARNING, "WARNING: maximum size of buffer reached - indication of a MTU problem");
-    }
+    ipv6out.ensureConsistentLength(bb);
 
     // update timestamp of last packet received
     lastPacketReceivedTime = new Date();
 
     // check buffer content
-    if ((bb.get(0) >>> 4) != 6) {
+    if ((bb.get(bb.position() + IPv6InputHandler.IPV6PACKET_PROTOCOL_BYTE_OFFSET) >>> IPv6InputHandler.IPV6PACKET_PROTOCOL_BIT_OFFSET) != 6) {
       logger.log(Level.INFO, "Received non-IPv6 package");
       invalidPacketCounter++;
       return false;
@@ -111,7 +105,9 @@ public class IPv4InputHandler implements Runnable, ConnectedClientHandler {
     
     // check source IP address
     byte[] rawIpAddress = new byte[16];
-    bb.slice().position(8).get(rawIpAddress);
+    System.arraycopy(bb.array(), bb.position() + IPv6InputHandler.IPV6PACKET_SOURCE_OFFSET + bb.arrayOffset(),
+        rawIpAddress, 0, rawIpAddress.length);
+    // TODO in java 16, replace by bb.get(bb.position() + IPv6InputHandler.IPV6PACKET_SOURCE_OFFSET, rawIpAddress);
     InetAddress sourceIp = Inet6Address.getByAddress(rawIpAddress);
     if (!clientAddress.equals(sourceIp)) {
       logger.log(Level.WARNING, "Received IPv6 package from Client {0} with source IP {1}", new Object[] {clientAddress, sourceIp});
@@ -143,8 +139,11 @@ public class IPv4InputHandler implements Runnable, ConnectedClientHandler {
       logger.info("Handling client " + client.getHostString());
 
       while (true) {
-        int bytesRead = dtlsTransport.receive(bb.array(), bb.arrayOffset(), bb.capacity(), 60 * 1000);
+        bb.clear();
+        int bytesRead = dtlsTransport.receive(bb.array(), bb.arrayOffset() + bb.position(), bb.limit() - bb.position(), 60 * 1000);
         if (bytesRead < 0) {
+          throw new IOException ("dtlsTransport indicates eof");
+        } else if (bytesRead == 0) {
           logger.finer("read 0 bytes within timeout " + client.getHostString());
           try {
             Thread.sleep(100L);
@@ -154,15 +153,13 @@ public class IPv4InputHandler implements Runnable, ConnectedClientHandler {
           continue;
         }
         bb.limit(bytesRead);
-        bb.position(0);
-        
         logger.finest("Writing package");
         writeToIPv6(clientAddress, bb);
       }
     } catch (TlsTimeoutException e) {
       logger.log(Level.INFO, "Client {0}/{1} had timeout", new Object[] {client.getHostString(), clientAddress});
     } catch (IOException e) {
-      logger.log(Level.WARNING, "Unsuccessful connection", e);
+      logger.log(Level.WARNING, e, () -> "Connection lost with client " + client.getHostString());
     } finally {
       logger.log(Level.INFO, "Client {0}/{1} is gone", new Object[] {client.getHostString(), clientAddress});
       dtlsData.removeServer(clientAddress);

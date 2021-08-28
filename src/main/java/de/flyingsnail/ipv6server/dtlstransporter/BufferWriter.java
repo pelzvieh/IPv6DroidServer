@@ -43,5 +43,12 @@ public interface BufferWriter {
    * @throws IOException in case of a communication problem
    */
   public void write(ByteBuffer bb) throws IOException;
+  
+  /**
+   * @param bb a ByteBuffer containing an IPv6 packet at its position.
+   * @throws IOException in case of length mismatch of buffer remaining and the packet 
+   *         size as indicated by the packet itself
+   */
+  public void ensureConsistentLength(ByteBuffer bb) throws IOException;
 
 }

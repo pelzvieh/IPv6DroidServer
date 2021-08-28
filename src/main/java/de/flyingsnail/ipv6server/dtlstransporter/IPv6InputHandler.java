@@ -21,16 +21,16 @@
 package de.flyingsnail.ipv6server.dtlstransporter;
 
 import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.io.OutputStream;
 import java.net.Inet6Address;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
+import java.nio.channels.Channels;
+import java.nio.channels.FileChannel;
+import java.nio.channels.ReadableByteChannel;
+import java.nio.channels.WritableByteChannel;
+import java.nio.file.Path;
 import java.rmi.NoSuchObjectException;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
@@ -54,6 +54,21 @@ import org.eclipse.jdt.annotation.NonNull;
  */
 public class IPv6InputHandler implements Runnable, BufferWriter {
     
+  private static final int IPV6PACKET_DESTINATION_OFFSET = 24;
+
+  private static final int IPV6PACKET_HEADER_LENGTH = 40;
+
+  static final int IPV6PACKET_LENGTH_OFFSET = 4;
+
+  static final int IPV6PACKET_SOURCE_OFFSET = 8;
+
+  /** 
+   * The first 4  bits of a packet should give the IP version.
+   */
+  static final int IPV6PACKET_PROTOCOL_BYTE_OFFSET = 0;
+
+  static final int IPV6PACKET_PROTOCOL_BIT_OFFSET = 4;
+  
   private Logger logger = Logger.getLogger(getClass().getName());
   
   private @NonNull DTLSData dtlsData;
@@ -62,10 +77,12 @@ public class IPv6InputHandler implements Runnable, BufferWriter {
 
   final ForkJoinPool executorPool = new ForkJoinPool();
  
-  private Future<InputStream> inputStream;
+  private Future<ReadableByteChannel> inputChannel;
   
-  private Future<OutputStream> outputStream;
-  
+  private Future<WritableByteChannel> outputChannel;
+
+  private WritableByteChannel stdoutChannel;
+
   /**
    * Constructor
    * @param dtlsData the registry of DTLS sessions per IPv6 address
@@ -77,6 +94,9 @@ public class IPv6InputHandler implements Runnable, BufferWriter {
   private IPv6InputHandler (@NonNull DTLSData dtlsData, boolean passUnHandled) throws IllegalStateException {
     this.dtlsData = dtlsData;
     this.passUnHandled = passUnHandled;
+    if (passUnHandled) {
+      stdoutChannel = Channels.newChannel(System.out);
+    }
   }
 
   public IPv6InputHandler(DTLSData dtlsData, String tunDevice, Boolean passThrough) throws IllegalStateException {
@@ -90,8 +110,8 @@ public class IPv6InputHandler implements Runnable, BufferWriter {
     }
   
     // set input and output streams
-    inputStream = executorPool.submit(() -> tunPipe.getInputStream());
-    outputStream = executorPool.submit(() -> tunPipe.getOutputStream());
+    inputChannel = executorPool.submit(() -> Channels.newChannel(tunPipe.getInputStream()));
+    outputChannel = executorPool.submit(() -> Channels.newChannel(tunPipe.getOutputStream()));
     
     // launch an consumer on TUNTOPIPE's error stream to log its output
     Thread errLogger = new Thread (() -> {
@@ -118,12 +138,12 @@ public class IPv6InputHandler implements Runnable, BufferWriter {
     errLogger.start();
   }
 
-  public IPv6InputHandler(DTLSData dtlsData, File input, File output, Boolean passThrough) throws IllegalStateException {
+  public IPv6InputHandler(DTLSData dtlsData, Path input, Path output, Boolean passThrough) throws IllegalStateException {
     this (dtlsData, passThrough);
     logger.info(() -> "Constructing pipe based IPv6InputHandler on " + input + " and " + output);
     // set input and output streams
-    outputStream = executorPool.submit(() -> new FileOutputStream(output));
-    inputStream = executorPool.submit(() -> new FileInputStream(input));
+    outputChannel = executorPool.submit(() ->  FileChannel.open(output));
+    inputChannel = executorPool.submit(() -> FileChannel.open(input));
   }
 
   private Process attachToTun(@NonNull final String tunDevice) throws IOException {
@@ -147,37 +167,19 @@ public class IPv6InputHandler implements Runnable, BufferWriter {
   public void run() {
     logger.info("Listening for IPv6 packets");
     ByteBuffer buffer = ByteBuffer.allocate(64*1024);
-    ByteBuffer lengthBytes = ByteBuffer.allocate(2);
     try {
-      final InputStream is = inputStream.get();
+      final ReadableByteChannel ic = inputChannel.get();
       while (true) {
-        // tuntopipe writes two bytes length information
-        lengthBytes.clear();
-        int bytesRead = is.read(lengthBytes.array(), lengthBytes.arrayOffset(), 2);
-        if (bytesRead < 0)
-          throw new IllegalStateException ("EOF flagged from input stream at begin of new data block");
-        if (bytesRead != 2)
-          throw new IllegalStateException ("Did not read two bytes of length indicator - probably lost stream sync");
-        lengthBytes.limit(2);
-        short length = lengthBytes.getShort();
         buffer.clear();
-        if (length < 40 || length > buffer.capacity()) {
-          throw new IllegalStateException("Got illegal length information - probably lost stream sync: 0x" + 
-              String.format("%4x", length));
-        }
-        buffer.limit(buffer.position() + length);
-        bytesRead = is.read(buffer.array(), buffer.arrayOffset() + buffer.position(), buffer.remaining());
+        int bytesRead = ic.read(buffer);
         if (bytesRead < 0)
           throw new IllegalStateException ("EOF flagged from input stream during read of data block");
-        if (bytesRead != length)
-          throw new IllegalStateException ("Did not read indicated number of bytes of IP package - probably lost stream sync");
-        logger.finer(() -> "Received packet, size " + length);
+        ensureConsistentLength(buffer);
+        logger.finer(() -> "Received packet, size " + buffer.remaining());
         if (!handleIPv6Packet(buffer)) {
           if (passUnHandled) {
             logger.finer(() -> "Passing packet to stdout");
-            System.out.write(lengthBytes.array(), lengthBytes.arrayOffset(), 2);
-            System.out.write (buffer.array(), buffer.arrayOffset() + buffer.position(), buffer.remaining());
-            System.out.flush();
+            stdoutChannel.write(buffer);
           } else {
             logger.log(Level.WARNING, "Unsupported IPv6 address referred from incoming IPv6 packet");
           }
@@ -188,12 +190,12 @@ public class IPv6InputHandler implements Runnable, BufferWriter {
     } finally {
       logger.log(Level.INFO, "IPv6 listener stopping");
       try {
-        inputStream.get().close();
+        inputChannel.get().close();
       } catch (IOException | InterruptedException | ExecutionException e) {
         logger.log(Level.WARNING, "Cannot close input stream", e);
       }
       try {
-        outputStream.get().close();
+        outputChannel.get().close();
       } catch (IOException | InterruptedException | ExecutionException e) {
         logger.log(Level.WARNING, "Cannot close output stream", e);
       }
@@ -206,20 +208,21 @@ public class IPv6InputHandler implements Runnable, BufferWriter {
    * 
    * @param buffer the ByteBuffer containing the packet. Position() points to the first byte to use, limit() after
    *        the last one.
+   * @return a boolean indicating if the supplied packet was found to be valid and could be sent. 
    * @throws IOException in case of communication problems.
    */
   private boolean handleIPv6Packet(ByteBuffer buffer) {
-    buffer = buffer.slice().mark();
-    byte version = (byte)((buffer.get() >> 4) & 0xf); // die 4 ersten bits des Packets sollen die IP-Version sein
+    byte version = (byte)(buffer.get(buffer.position() + IPV6PACKET_PROTOCOL_BYTE_OFFSET) >>> IPV6PACKET_PROTOCOL_BIT_OFFSET);
     if (version != 6) {
       logger.warning("Received non IPv6 packet - discarding");
       return false;
     }
-    buffer.position(buffer.position() + 23);
     
     byte[] addr = new byte[16];
-    buffer.get (addr);
-    buffer.reset();
+    System.arraycopy(buffer.array(), buffer.position() + IPV6PACKET_DESTINATION_OFFSET + buffer.arrayOffset(),
+        addr, 0, addr.length);
+    // TODO in java 16, replace by buffer.get (buffer.position() + IPV6PACKET_DESTINATION_OFFSET, addr);
+
     Inet6Address receiver;
     try {
       receiver = (Inet6Address) Inet6Address.getByAddress(addr);
@@ -254,22 +257,29 @@ public class IPv6InputHandler implements Runnable, BufferWriter {
    */
   @Override
   public void write(ByteBuffer bb) throws IOException {
-    short len = (short)bb.remaining();
-    OutputStream os;
+    ensureConsistentLength(bb);
+    WritableByteChannel oc;
     try {
-      os = outputStream.get();
+      oc = outputChannel.get();
+      // write the packet
+      oc.write(bb);
     } catch (InterruptedException | ExecutionException e) {
       throw new IOException (e);
     }
-    synchronized (os) {
-      // write the length
-      os.write (len >> 8); // masking is done by the write method already
-      os.write (len);
-      // write the packet
-      os.write(bb.array(), bb.arrayOffset() + bb.position(), bb.remaining());
-      os.flush();
-    }
   }
 
-
+  /**
+   * @param bb a ByteBuffer containing an IPv6 packet at its position.
+   * @throws IOException in case of length mismatch of buffer remaining and the packet 
+   *         size as indicated by the packet itself
+   */
+  public void ensureConsistentLength(ByteBuffer bb) throws IOException {
+    if (bb.remaining() < IPV6PACKET_HEADER_LENGTH) {
+      throw new IOException("Supplied packet ist too short even for an IPv6 header");
+    }
+    short len = bb.getShort(IPV6PACKET_LENGTH_OFFSET);
+    if (bb.remaining() != len + IPV6PACKET_HEADER_LENGTH) {
+      throw new IOException("Attempt to write buffer with inconsistend length information: buffer remaining does not match indicated payload size plus header length");
+    }
+  }
 }

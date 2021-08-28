@@ -106,28 +106,9 @@ int cwrite(int fd, char *buf, int n){
 
   if((nwrite=write(fd, buf, n)) < 0){
     perror("Writing data");
-    my_err("Error writing %d bytes to file descriptor %d", n, fd);
+    my_err("Error writing %d bytes to file descriptor %d\n", n, fd);
   }
   return nwrite;
-}
-
-/**************************************************************************
- * read_n: ensures we read exactly n bytes, and puts them into "buf".     *
- *         (unless EOF, of course)                                        *
- **************************************************************************/
-int read_n(int fd, char *buf, int n) {
-
-  int nread, left = n;
-
-  while(left > 0) {
-    if ((nread = cread(fd, buf, left)) <= 0){
-      return 0;      
-    } else {
-      left -= nread;
-      buf += nread;
-    }
-  }
-  return n;  
 }
 
 /**************************************************************************
@@ -181,12 +162,11 @@ void usage(void) {
 }
 
 int main(int argc, char *argv[]) {
-  
   int tap_fd, option;
   int flags = IFF_TUN;
   char if_name[IFNAMSIZ] = "";
   int maxfd;
-  uint16_t nread, nwrite, plength;
+  int nread, nwrite;
   char buffer[BUFSIZE];
   struct sockaddr_in local, remote;
   char remote_ip[16] = "";            /* dotted quad IP string */
@@ -259,64 +239,54 @@ int main(int argc, char *argv[]) {
 
     if (ret < 0) {
       perror("select()");
+      my_err("Exiting after fatal error in select\n");
       exit(1);
     }
 
     if(FD_ISSET(tap_fd, &rd_set)) {
       /* data from tun/tap: just read it and write it to stdout */
-      
       nread = cread(tap_fd, buffer, BUFSIZE);
       if (nread <= 0) {
         my_err("Read %d bytes from tap\n", nread);
-        continue;
-      }
+      } else {
+        tap2pipe++;
+        /* sort of time tick each 65536 packets */
+        if ((tap2pipe & 0xffff) == 1) {
+          my_err ("tap2pipe reached %lu and read %d bytes\n", tap2pipe, nread);
+        } else  {
+          do_debug("TAP2PIPE %lu: Read %d bytes from the tap interface\n", tap2pipe, nread);
+        }
 
-      tap2pipe++;
-      if ((tap2pipe & 0xffff) == 1) {
-        my_err ("tap2pipe reached %lu and read %d bytes\n", tap2pipe, nread);
-      } else  {
-        do_debug("TAP2PIPE %lu: Read %d bytes from the tap interface\n", tap2pipe, nread);
-      }
-
-      /* write length + packet */
-      plength = htons(nread);
-      nwrite = cwrite(STDOUT_FILENO, (char *)&plength, sizeof(plength));
-      nwrite = cwrite(STDOUT_FILENO, buffer, nread);
+        /* write packet */
+        nwrite = cwrite(STDOUT_FILENO, buffer, nread);
       
-      do_debug("TAP2PIPE %lu: Written %d bytes to the stdout\n", tap2pipe, nwrite);
+        do_debug("TAP2PIPE %lu: Written %d bytes to the stdout\n", tap2pipe, nwrite);
+      }
     }
 
-    if(FD_ISSET(STDIN_FILENO, &rd_set)) {
+    if (FD_ISSET(STDIN_FILENO, &rd_set)) {
       /* data from the pipe: read it, and write it to the tun/tap interface. 
-       * We need to read the length first, and then the packet */
-
-      /* Read length */      
-      nread = read_n(STDIN_FILENO, (char *)&plength, sizeof(plength));
-      if (nread == 0) {
-        /* ctrl-c at the other end */
-        break;
-      }
-      if (plength > BUFSIZE) {
-        my_err ("Read number of bytes %u exceeds maximum buffer length %u - aborting communication\n", plength, BUFSIZE);
-        exit(2);
-      }
-
-      pipe2tap++;
-      if ((pipe2tap & 0xffff) == 1) {
-        my_err ("pipe2tap reached %lu and read %d bytes\n", pipe2tap, plength);
-      }
 
       /* read packet */
-      nread = read_n(STDIN_FILENO, buffer, ntohs(plength));
-      do_debug("PIPE2TAP %lu: Read %d bytes from STDIN_FILENO\n", pipe2tap, nread);
-      if(nread == 0) {
-        /* ctrl-c at the other end */
-        break;
+      nread = cread(tap_fd, buffer, BUFSIZE);
+      pipe2tap++;
+      
+      /* again some time-tick function for log file annotation */
+      if ((pipe2tap & 0xffff) == 1) {
+        my_err ("pipe2tap reached %lu and read %d bytes\n", pipe2tap, nread);
       }
-
-      /* now buffer[] contains a full packet or frame, write it into the tun/tap interface */ 
-      nwrite = cwrite(tap_fd, buffer, nread);
-      do_debug("PIPE2TAP %lu: Written %d bytes to the tap interface\n", pipe2tap, nwrite);
+      do_debug("PIPE2TAP %lu: Read %d bytes from STDIN_FILENO\n", pipe2tap, nread);
+      if (nread < 0) {
+        my_err ("input pipe closed/disfunctional, exitting\n");
+        break;
+      } else if (nread > 0) {
+        /* now buffer[] contains a full packet or frame, write it into the tun/tap interface */ 
+        nwrite = cwrite(tap_fd, buffer, nread);
+        do_debug("PIPE2TAP %lu: Written %d bytes to the tap interface\n", pipe2tap, nwrite);
+        if (nwrite != nread) {
+          my_err ("Failed to write full packet to the tap interface, %d bytes written of %d available\n", nwrite, nread);
+        }
+      }
     }
   }
   

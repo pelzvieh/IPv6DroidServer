@@ -108,7 +108,7 @@
     </profile>
   </profiles>
   <properties>
-    <java-version>16</java-version>
+    <java-version>11</java-version>
     <bouncycastle-version>1.68</bouncycastle-version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <junit-version>4.13.1</junit-version>
