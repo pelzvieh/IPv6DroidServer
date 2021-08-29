@@ -46,9 +46,10 @@ public interface BufferWriter {
   
   /**
    * @param bb a ByteBuffer containing an IPv6 packet at its position.
+   * @return 
    * @throws IOException in case of length mismatch of buffer remaining and the packet 
    *         size as indicated by the packet itself
    */
-  public void ensureConsistentLength(ByteBuffer bb) throws IOException;
+  public boolean isValidIPv6(ByteBuffer bb) throws IOException;
 
 }

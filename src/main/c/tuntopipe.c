@@ -215,7 +215,7 @@ int main(int argc, char *argv[]) {
 
   /* initialize tun/tap interface */
   if ( (tap_fd = tun_alloc(if_name, flags | IFF_NO_PI)) < 0 ) {
-    my_err("Error connecting to tun/tap interface %s!\n", if_name);
+    my_err("Error connecting to tun/tap interface %s with file descriptor %d\n", if_name, tap_fd);
     exit(1);
   }
 
@@ -247,7 +247,8 @@ int main(int argc, char *argv[]) {
       /* data from tun/tap: just read it and write it to stdout */
       nread = cread(tap_fd, buffer, BUFSIZE);
       if (nread <= 0) {
-        my_err("Read %d bytes from tap\n", nread);
+        my_err("Read %d bytes from tap - exiting\n", nread);
+        break;
       } else {
         tap2pipe++;
         /* sort of time tick each 65536 packets */
@@ -268,7 +269,7 @@ int main(int argc, char *argv[]) {
       /* data from the pipe: read it, and write it to the tun/tap interface. 
 
       /* read packet */
-      nread = cread(tap_fd, buffer, BUFSIZE);
+      nread = cread(STDIN_FILENO, buffer, BUFSIZE);
       pipe2tap++;
       
       /* again some time-tick function for log file annotation */
@@ -276,8 +277,8 @@ int main(int argc, char *argv[]) {
         my_err ("pipe2tap reached %lu and read %d bytes\n", pipe2tap, nread);
       }
       do_debug("PIPE2TAP %lu: Read %d bytes from STDIN_FILENO\n", pipe2tap, nread);
-      if (nread < 0) {
-        my_err ("input pipe closed/disfunctional, exitting\n");
+      if (nread <= 0) {
+        my_err ("input pipe closed, exitting\n");
         break;
       } else if (nread > 0) {
         /* now buffer[] contains a full packet or frame, write it into the tun/tap interface */ 

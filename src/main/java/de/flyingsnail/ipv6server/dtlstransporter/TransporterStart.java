@@ -245,9 +245,15 @@ public class TransporterStart implements DTLSData {
    * Run the copying process
    */
   private int run() {
-    IPv6InputHandler ipv6InputHandler = (source == Source.TUNTOPIPE) ? 
-        new IPv6InputHandler(this, "tun0", passThrough) : 
-        new IPv6InputHandler(this, input, output, passThrough);
+    IPv6InputHandler ipv6InputHandler;
+    try {
+      ipv6InputHandler = (source == Source.TUNTOPIPE) ? 
+          new IPv6InputHandler(this, "tun0", passThrough) : 
+          new IPv6InputHandler(this, input, output, passThrough);
+    } catch (IllegalStateException | IOException e) {
+      logger.log(Level.SEVERE, "Could not start IPv6InputHandler", e);
+      return EXIT_IO_ERR;
+    }
     logger.info("IPv6InputHandler is constructed");
 
     Thread ip4Thread = new Thread(new IPv4InputHandler(this, dtlsListener, ipv6InputHandler), "IPv4 consumer");
@@ -266,6 +272,8 @@ public class TransporterStart implements DTLSData {
   private void monitorThreads(Thread[] threads) {
     while (true)
       for (Thread thread: threads) {
+        logger.fine(() -> "Joining on thread " + thread.getName());
+
         try {
           thread.join(10000);
         } catch (InterruptedException e) {
@@ -277,6 +285,7 @@ public class TransporterStart implements DTLSData {
         if (!thread.isAlive()) {
           throw new IllegalStateException (String.format("Thread %s has died, will terminate", thread.getName()));
         }
+        logger.fine(() -> thread.getName() + " is alive");
       }
   }
 

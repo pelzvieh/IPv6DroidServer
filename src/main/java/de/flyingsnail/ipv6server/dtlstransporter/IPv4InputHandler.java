@@ -90,14 +90,11 @@ public class IPv4InputHandler implements Runnable, ConnectedClientHandler {
     if (ipv6out == null)
       throw new IllegalStateException("write() called on unconnected handler");
 
-    // first check some pathological results for stability reasons
-    ipv6out.ensureConsistentLength(bb);
-
     // update timestamp of last packet received
     lastPacketReceivedTime = new Date();
 
     // check buffer content
-    if ((bb.get(bb.position() + IPv6InputHandler.IPV6PACKET_PROTOCOL_BYTE_OFFSET) >>> IPv6InputHandler.IPV6PACKET_PROTOCOL_BIT_OFFSET) != 6) {
+    if (!ipv6out.isValidIPv6(bb)) {
       logger.log(Level.INFO, "Received non-IPv6 package");
       invalidPacketCounter++;
       return false;
