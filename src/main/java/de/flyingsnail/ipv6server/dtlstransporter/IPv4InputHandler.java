@@ -26,6 +26,7 @@ import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.rmi.NoSuchObjectException;
 import java.util.Date;
+import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -94,8 +95,13 @@ public class IPv4InputHandler implements Runnable, ConnectedClientHandler {
     lastPacketReceivedTime = new Date();
 
     // check buffer content
-    if (!ipv6out.isValidIPv6(bb)) {
-      logger.log(Level.INFO, "Received non-IPv6 package");
+    try {
+      List<ByteBuffer> packets = ipv6out.cutConsistentIPv6(bb);
+      if (packets.size() != 1) {
+        throw new IOException("Retrieved data do not represent a single IPv6 package");
+      }
+    } catch (IOException e) {
+      logger.log(Level.INFO, "Received non-/not single IPv6 package", e);
       invalidPacketCounter++;
       return false;
     }

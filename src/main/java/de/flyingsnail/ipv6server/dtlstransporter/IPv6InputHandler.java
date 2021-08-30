@@ -33,6 +33,8 @@ import java.nio.channels.WritableByteChannel;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.rmi.NoSuchObjectException;
+import java.util.Arrays;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
@@ -186,12 +188,14 @@ public class IPv6InputHandler implements Runnable, BufferWriter {
           throw new IllegalStateException ("EOF flagged from input stream during read of data block");
         buffer.flip();
         logger.finer(() -> "Received packet, size " + buffer.remaining());
-        if (!handleIPv6Packet(buffer)) {
-          if (passUnHandled) {
-            logger.finer(() -> "Passing packet to stdout");
-            stdoutChannel.write(buffer);
-          } else {
-            logger.log(Level.WARNING, "Unsupported IPv6 address referred from incoming IPv6 packet");
+        for (ByteBuffer packet: cutConsistentIPv6(buffer)) {
+          if (!handleIPv6Packet(packet)) {
+            if (passUnHandled) {
+              logger.finer(() -> "Passing packet to stdout");
+              stdoutChannel.write(packet);
+            } else {
+              logger.log(Level.WARNING, "Unsupported IPv6 address referred from incoming IPv6 packet");
+            }
           }
         }
       }
@@ -223,9 +227,6 @@ public class IPv6InputHandler implements Runnable, BufferWriter {
    * @throws IOException in case of communication problems.
    */
   private boolean handleIPv6Packet(ByteBuffer buffer) {
-    if (!isValidIPv6(buffer) ) {
-      return false;
-    }
     byte[] addr = new byte[16];
     System.arraycopy(buffer.array(), buffer.position() + IPV6PACKET_DESTINATION_OFFSET + buffer.arrayOffset(),
         addr, 0, addr.length);
@@ -265,33 +266,39 @@ public class IPv6InputHandler implements Runnable, BufferWriter {
    */
   @Override
   public void write(ByteBuffer bb) throws IOException {
-    if (!isValidIPv6(bb)) {
-      throw new IllegalArgumentException("Tried to write a buffer to network that is not valid IPv6");
+    List<ByteBuffer> packets = cutConsistentIPv6(bb);
+    for (ByteBuffer packet: packets) {
+      outputChannel.write(packet);
     }
-    // write the packet
-    outputChannel.write(bb);
   }
 
   /**
    * @param bb a ByteBuffer containing an IPv6 packet at its position.
-   * @return boolean true if length information is consistent and the packet appears to be valid IPv6
+   * @return List<ByteBuffer> an ordered list of ByteBuffers sliced from bb, each representing
+   *         start and end of a single IPv6 packet.
+   * @throws IOException in case of buffer not representing an IPv6 packet, length mismatch of
+   *         buffer remaining and the packet size as indicated by the packet itself
    */
-  public boolean isValidIPv6(ByteBuffer bb) {
+  public List<ByteBuffer> cutConsistentIPv6(ByteBuffer bb) throws IOException {
     if (bb.remaining() < IPV6PACKET_HEADER_LENGTH) {
-      logger.warning(()->"Packet too short for even an IPv6 header: byte count=" + bb.remaining());
-      return false;
-    }
-    short len = bb.getShort(bb.position() + IPV6PACKET_LENGTH_OFFSET);
-    if (bb.remaining() != len + IPV6PACKET_HEADER_LENGTH) {
-      logger.warning(()->"Inconsistent length: packet says 40 + " + len + ", buffer has " + bb.remaining());
-      return false;
+      throw new IOException("Supplied packet ist too short even for an IPv6 header");
     }
     byte version = (byte)(bb.get(bb.position() + IPV6PACKET_PROTOCOL_BYTE_OFFSET) >>> IPV6PACKET_PROTOCOL_BIT_OFFSET);
     if (version != 6) {
-      logger.warning("Received non IPv6 packet - discarding");
-      return false;
+      throw new IOException("Received non IPv6 packet - discarding");
     }
     
-    return true;
+
+    short len = bb.getShort(bb.position() + IPV6PACKET_LENGTH_OFFSET);
+    if (bb.remaining() < len + IPV6PACKET_HEADER_LENGTH) {
+      throw new IOException("Attempt to write buffer with inconsistend length information: buffer remaining does not match indicated payload size plus header length");
+    } else if (bb.remaining() > len + IPV6PACKET_HEADER_LENGTH) {
+      List<ByteBuffer> chain = new LinkedList<ByteBuffer>();
+      chain.add(bb.slice().limit(len + IPV6PACKET_HEADER_LENGTH));
+      chain.addAll(cutConsistentIPv6(bb.slice().position(len + IPV6PACKET_HEADER_LENGTH)));
+      return chain;
+    } else {
+      return Arrays.asList(bb);
+    }
   }
 }
