@@ -19,6 +19,15 @@
     <junit-version>4.13.1</junit-version>
     <bouncycastle-version>1.68</bouncycastle-version>
   </properties>
+  
+  <distributionManagement>
+    <repository>
+      <id>pelzi-privat</id>
+      <url>scpexe://athlon1.internal.flying-snail.de/home/pelzi/maven-repository/</url>
+    </repository>
+  </distributionManagement>
+  
+  
   <profiles>
    <profile>
      <id>test</id>

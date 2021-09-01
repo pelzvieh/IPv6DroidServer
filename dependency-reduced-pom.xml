@@ -4,9 +4,10 @@
   <groupId>de.flyingsnail.ipv6server</groupId>
   <artifactId>IPv6DTLSTransport</artifactId>
   <name>IPv6 DTLS Transport</name>
-  <version>0.2.6-SNAPSHOT</version>
+  <version>0.2.6</version>
   <scm>
     <connection>scm:git:https://github.com/pelzvieh/IPv6DroidServer</connection>
+    <tag>IPv6DTLSTransport-0.2.6</tag>
     <url>https://github.com/pelzvieh/IPv6DroidServer</url>
   </scm>
   <build>
