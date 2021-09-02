@@ -45,6 +45,7 @@ import java.util.logging.Logger;
 
 import org.bouncycastle.tls.DTLSTransport;
 import org.bouncycastle.tls.TlsFatalAlert;
+import org.bouncycastle.util.encoders.Hex;
 import org.eclipse.jdt.annotation.NonNull;
 
 /**
@@ -281,20 +282,20 @@ public class IPv6InputHandler implements Runnable, BufferWriter {
    */
   public List<ByteBuffer> cutConsistentIPv6(ByteBuffer bb) throws IOException {
     if (bb.remaining() < IPV6PACKET_HEADER_LENGTH) {
-      throw new IOException("Supplied packet ist too short even for an IPv6 header");
+      throw new IOException("Supplied packet ist too short even for an IPv6 header\n  " + dumpHeader(bb) + "\n");
     }
     byte version = (byte)(bb.get(bb.position() + IPV6PACKET_PROTOCOL_BYTE_OFFSET) >>> IPV6PACKET_PROTOCOL_BIT_OFFSET);
     if (version != 6) {
-      throw new IOException("Received non IPv6 packet - discarding");
+      throw new IOException("Received non IPv6 packet - discarding\n  " + dumpHeader(bb) + "\n");
     }
     
 
     short len = bb.getShort(bb.position() + IPV6PACKET_LENGTH_OFFSET);
     if (len < 0) {
-      throw new IOException("Invalid packet length in supposed IPv6 packet");
+      throw new IOException("Invalid packet length in supposed IPv6 packet\n  " + dumpHeader(bb) + "\n");
     }
     if (bb.remaining() < len + IPV6PACKET_HEADER_LENGTH) {
-      throw new IOException("Attempt to write buffer with inconsistent length information: buffer remaining does not match indicated payload size plus header length");
+      throw new IOException("Attempt to write buffer with inconsistent length information: buffer remaining does not match indicated payload size plus header length\n  " + dumpHeader(bb) + "\n");
     } else if (bb.remaining() > len + IPV6PACKET_HEADER_LENGTH) {
       List<ByteBuffer> chain = new LinkedList<ByteBuffer>();
       chain.add(bb.slice().limit(len + IPV6PACKET_HEADER_LENGTH));
@@ -303,5 +304,14 @@ public class IPv6InputHandler implements Runnable, BufferWriter {
     } else {
       return Arrays.asList(bb);
     }
+  }
+
+  /**
+   * Convert first 40 bytes of buffer to hex string for debug purposes
+   * @param bb the ByteBuffer to dump, position and limit setting boudary of dump
+   * @return String representing buffer as hexadecimal string
+   */
+  private String dumpHeader(ByteBuffer bb) {
+    return Hex.toHexString(bb.array(), bb.arrayOffset() + bb.position(), Math.min(bb.remaining(), 40));
   }
 }

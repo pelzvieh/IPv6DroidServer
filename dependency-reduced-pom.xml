@@ -4,13 +4,19 @@
   <groupId>de.flyingsnail.ipv6server</groupId>
   <artifactId>IPv6DTLSTransport</artifactId>
   <name>IPv6 DTLS Transport</name>
-  <version>0.2.6</version>
+  <version>0.2.7-SNAPSHOT</version>
   <scm>
     <connection>scm:git:https://github.com/pelzvieh/IPv6DroidServer</connection>
-    <tag>IPv6DTLSTransport-0.2.6</tag>
     <url>https://github.com/pelzvieh/IPv6DroidServer</url>
   </scm>
   <build>
+    <extensions>
+      <extension>
+        <groupId>org.apache.maven.wagon</groupId>
+        <artifactId>wagon-ssh-external</artifactId>
+        <version>1.0-beta-6</version>
+      </extension>
+    </extensions>
     <resources>
       <resource>
         <filtering>true</filtering>
@@ -108,6 +114,12 @@
       </build>
     </profile>
   </profiles>
+  <distributionManagement>
+    <repository>
+      <id>localdeployrepo</id>
+      <url>${localRepositoryURL}</url>
+    </repository>
+  </distributionManagement>
   <properties>
     <java-version>11</java-version>
     <bouncycastle-version>1.68</bouncycastle-version>

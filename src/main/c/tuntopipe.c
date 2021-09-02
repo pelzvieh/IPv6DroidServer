@@ -151,6 +151,21 @@ void my_err(char *msg, ...) {
 }
 
 /**************************************************************************
+ * dump_header: dumps the header of the given packet (buffer) to stderr   *
+ **************************************************************************/
+void dump_header (char *buffer, int length) {
+  int i;
+  for (i == 0; i < 40 && i < length; i++) {
+    if (i%10 == 0) {
+      fputc ('\n', stderr);
+    }
+    fprintf (stderr, "%x", buffer[i]);
+  }
+  fputc ('\n', stderr);
+}
+
+
+/**************************************************************************
  * usage: prints usage and exits.                                         *
  **************************************************************************/
 void usage(void) {
@@ -173,16 +188,19 @@ void usage(void) {
 int packet_is_valid_ipv6(char *buffer, int nread) {
   if (nread < IPV6PACKET_HEADER_LENGTH) {
     my_err ("Received too short packet of %d bytes\n", nread);
+    dump_header (buffer, nread);
     return 0;
   }
   if (((buffer[IPV6PACKET_PROTOCOL_BYTE_OFFSET] >> IPV6PACKET_PROTOCOL_BIT_OFFSET) & 0x0f) != (char)6) {
     my_err ("Received packet where IP version is not set to 6\n");
+    dump_header (buffer, nread);
     return 0;
   }
   uint16_t packetlength = *((uint16_t*)(buffer + IPV6PACKET_LENGTH_OFFSET));
   packetlength = ntohs(packetlength);
   if (packetlength + IPV6PACKET_HEADER_LENGTH != nread) {
     my_err ("Inconsistent length information:\n header information: %d\n read bytes: %d\n", (int)packetlength + IPV6PACKET_HEADER_LENGTH, nread);
+    dump_header (buffer, nread);
     return 0;
   }
   return 1;
