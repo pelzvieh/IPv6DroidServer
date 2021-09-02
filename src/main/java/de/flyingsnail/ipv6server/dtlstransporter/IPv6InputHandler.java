@@ -275,7 +275,7 @@ public class IPv6InputHandler implements Runnable, BufferWriter {
 
   /**
    * @param bb a ByteBuffer containing an IPv6 packet at its position.
-   * @return List<ByteBuffer> an ordered list of ByteBuffers sliced from bb, each representing
+   * @return List&lt;ByteBuffer&gt; an ordered list of ByteBuffers sliced from bb, each representing
    *         start and end of a single IPv6 packet.
    * @throws IOException in case of buffer not representing an IPv6 packet, length mismatch of
    *         buffer remaining and the packet size as indicated by the packet itself
