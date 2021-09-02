@@ -290,8 +290,11 @@ public class IPv6InputHandler implements Runnable, BufferWriter {
     
 
     short len = bb.getShort(bb.position() + IPV6PACKET_LENGTH_OFFSET);
+    if (len < 0) {
+      throw new IOException("Invalid packet length in supposed IPv6 packet");
+    }
     if (bb.remaining() < len + IPV6PACKET_HEADER_LENGTH) {
-      throw new IOException("Attempt to write buffer with inconsistend length information: buffer remaining does not match indicated payload size plus header length");
+      throw new IOException("Attempt to write buffer with inconsistent length information: buffer remaining does not match indicated payload size plus header length");
     } else if (bb.remaining() > len + IPV6PACKET_HEADER_LENGTH) {
       List<ByteBuffer> chain = new LinkedList<ByteBuffer>();
       chain.add(bb.slice().limit(len + IPV6PACKET_HEADER_LENGTH));

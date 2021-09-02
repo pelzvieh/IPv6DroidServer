@@ -43,6 +43,10 @@ void my_err(char *msg, ...);
 
 /* buffer for reading from tun/tap interface, must be >= 1500 */
 #define BUFSIZE 65536
+#define IPV6PACKET_HEADER_LENGTH 40
+#define IPV6PACKET_LENGTH_OFFSET  4
+#define IPV6PACKET_PROTOCOL_BYTE_OFFSET  0
+#define IPV6PACKET_PROTOCOL_BIT_OFFSET  4
 
 int debug;
 char *progname;
@@ -161,6 +165,29 @@ void usage(void) {
   exit(1);
 }
 
+/*************************************
+ * check if the supplied packet 
+ * (buffer and bytes read) are valid
+ * IPv6.
+ *************************************/
+int packet_is_valid_ipv6(char *buffer, int nread) {
+  if (nread < IPV6PACKET_HEADER_LENGTH) {
+    my_err ("Received too short packet of %d bytes\n", nread);
+    return 0;
+  }
+  if (((buffer[IPV6PACKET_PROTOCOL_BYTE_OFFSET] >> IPV6PACKET_PROTOCOL_BIT_OFFSET) & 0x0f) != (char)6) {
+    my_err ("Received packet where IP version is not set to 6\n");
+    return 0;
+  }
+  uint16_t packetlength = *((uint16_t*)(buffer + IPV6PACKET_LENGTH_OFFSET));
+  packetlength = ntohs(packetlength);
+  if (packetlength + IPV6PACKET_HEADER_LENGTH != nread) {
+    my_err ("Inconsistent length information:\n header information: %d\n read bytes: %d\n", (int)packetlength + IPV6PACKET_HEADER_LENGTH, nread);
+    return 0;
+  }
+  return 1;
+}
+
 int main(int argc, char *argv[]) {
   int tap_fd, option;
   int flags = IFF_TUN;
@@ -258,8 +285,16 @@ int main(int argc, char *argv[]) {
           do_debug("TAP2PIPE %lu: Read %d bytes from the tap interface\n", tap2pipe, nread);
         }
 
-        /* write packet */
-        nwrite = cwrite(STDOUT_FILENO, buffer, nread);
+        if(packet_is_valid_ipv6(buffer, nread)) {
+          /* write packet */
+          nwrite = cwrite(STDOUT_FILENO, buffer, nread);
+          if (nwrite < 0) {
+            my_err("stdout closed, quitting");
+            break;
+          }
+        } else {
+          my_err("Dropping invalid packet read from tun device of %d bytes size\n", nread);
+        }
       
         do_debug("TAP2PIPE %lu: Written %d bytes to the stdout\n", tap2pipe, nwrite);
       }
@@ -278,7 +313,7 @@ int main(int argc, char *argv[]) {
       }
       do_debug("PIPE2TAP %lu: Read %d bytes from STDIN_FILENO\n", pipe2tap, nread);
       if (nread <= 0) {
-        my_err ("input pipe closed, exitting\n");
+        my_err ("input pipe closed, exiting\n");
         break;
       } else if (nread > 0) {
         /* now buffer[] contains a full packet or frame, write it into the tun/tap interface */ 
