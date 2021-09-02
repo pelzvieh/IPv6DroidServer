@@ -3,7 +3,7 @@
   <artifactId>IPv6DTLSTransport</artifactId>
   <name>IPv6 DTLS Transport</name>
   <groupId>de.flyingsnail.ipv6server</groupId>
-  <version>0.2.8-SNAPSHOT</version>
+  <version>0.2.7-SNAPSHOT</version>
   <properties>
     <!-- encoding -->
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
