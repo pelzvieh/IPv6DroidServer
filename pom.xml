@@ -18,15 +18,13 @@
     <javaee-api-version>8.0.1-b5</javaee-api-version>
     <junit-version>4.13.1</junit-version>
     <bouncycastle-version>1.68</bouncycastle-version>
-  </properties>
-  
+  </properties>  
   <distributionManagement>
     <repository>
       <id>localdeployrepo</id>
       <url>${localRepositoryURL}</url>
     </repository>
   </distributionManagement>
-  
   
   <profiles>
    <profile>
