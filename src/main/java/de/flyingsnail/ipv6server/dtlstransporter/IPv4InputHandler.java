@@ -23,10 +23,10 @@ import java.io.IOException;
 import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.SocketException;
 import java.nio.ByteBuffer;
 import java.rmi.NoSuchObjectException;
 import java.util.Date;
-import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -96,8 +96,9 @@ public class IPv4InputHandler implements Runnable, ConnectedClientHandler {
 
     // check buffer content
     try {
-      List<ByteBuffer> packets = ipv6out.cutConsistentIPv6(bb);
-      if (packets.size() != 1) {
+      int contentLength = (int)ipv6out.verifyHeaderReturnPacketLength(bb);
+      
+      if (contentLength + IPv6InputHandler.IPV6PACKET_HEADER_LENGTH != bb.remaining()) {
         throw new IOException("Retrieved data do not represent a single IPv6 package");
       }
     } catch (IOException e) {
@@ -145,13 +146,15 @@ public class IPv4InputHandler implements Runnable, ConnectedClientHandler {
         bb.clear();
         int bytesRead = dtlsTransport.receive(bb.array(), bb.arrayOffset() + bb.position(), bb.limit() - bb.position(), 60 * 1000);
         if (bytesRead < 0) {
-          throw new IOException ("dtlsTransport indicates eof");
+          logger.fine("dtlsTransport indicates eof");
+          break;
         } else if (bytesRead == 0) {
-          logger.finer("read 0 bytes within timeout " + client.getHostString());
+          logger.finer(() -> "read 0 bytes within timeout " + client.getHostString());
           try {
             Thread.sleep(100L);
           } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            break;
           }
           continue;
         }
@@ -161,6 +164,8 @@ public class IPv4InputHandler implements Runnable, ConnectedClientHandler {
       }
     } catch (TlsTimeoutException e) {
       logger.log(Level.INFO, "Client {0}/{1} had timeout", new Object[] {client.getHostString(), clientAddress});
+    } catch (SocketException e) {
+      logger.log(Level.INFO, e, () -> "Asynchronous close of onnection for client " + client.getHostString());
     } catch (IOException e) {
       logger.log(Level.WARNING, e, () -> "Connection lost with client " + client.getHostString());
     } finally {

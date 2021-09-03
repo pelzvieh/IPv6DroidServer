@@ -33,8 +33,6 @@ import java.nio.channels.WritableByteChannel;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.rmi.NoSuchObjectException;
-import java.util.Arrays;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
@@ -45,7 +43,6 @@ import java.util.logging.Logger;
 
 import org.bouncycastle.tls.DTLSTransport;
 import org.bouncycastle.tls.TlsFatalAlert;
-import org.bouncycastle.util.encoders.Hex;
 import org.eclipse.jdt.annotation.NonNull;
 
 /**
@@ -61,7 +58,7 @@ public class IPv6InputHandler implements Runnable, BufferWriter {
     
   private static final int IPV6PACKET_DESTINATION_OFFSET = 24;
 
-  private static final int IPV6PACKET_HEADER_LENGTH = 40;
+  public static final int IPV6PACKET_HEADER_LENGTH = 40;
 
   static final int IPV6PACKET_LENGTH_OFFSET = 4;
 
@@ -80,13 +77,15 @@ public class IPv6InputHandler implements Runnable, BufferWriter {
 
   private boolean passUnHandled;
 
-  final ForkJoinPool executorPool = new ForkJoinPool();
+  final ForkJoinPool executorPool = new ForkJoinPool(2 * java.lang.Runtime.getRuntime().availableProcessors());
  
   private ReadableByteChannel inputChannel;
   
   private WritableByteChannel outputChannel;
 
   private WritableByteChannel stdoutChannel;
+
+  private Exception pipeBroken;
 
   /**
    * Constructor
@@ -178,28 +177,28 @@ public class IPv6InputHandler implements Runnable, BufferWriter {
   @Override
   public void run() {
     logger.info("Listening for IPv6 packets");
-    ByteBuffer buffer = ByteBuffer.allocate(64*1024);
+    final ByteBuffer buffer = ByteBuffer.allocate(64*1024);
     try {
       final ReadableByteChannel ic = inputChannel;
       logger.fine("Retrieved input channel");
-      while (true) {
-        buffer.clear();
-        int bytesRead = ic.read(buffer);
-        if (bytesRead < 0)
-          throw new IllegalStateException ("EOF flagged from input stream during read of data block");
-        buffer.flip();
-        logger.finer(() -> "Received packet, size " + buffer.remaining());
-        for (ByteBuffer packet: cutConsistentIPv6(buffer)) {
-          if (!handleIPv6Packet(packet)) {
-            if (passUnHandled) {
-              logger.finer(() -> "Passing packet to stdout");
-              stdoutChannel.write(packet);
-            } else {
-              logger.log(Level.WARNING, "Unsupported IPv6 address referred from incoming IPv6 packet");
+      pipeBroken = null;
+      while (pipeBroken == null) {
+        readAndVerifyIpv6Packet(buffer, ic);
+        if (!handleIPv6Packet(buffer)) {
+          if (passUnHandled) {
+            logger.finer(() -> "Passing packet to stdout");
+            try {
+              stdoutChannel.write(buffer);
+            } catch (IOException e) {
+              pipeBroken = e;
             }
+          } else {
+            logger.log(Level.WARNING, "Unsupported IPv6 address referred from incoming IPv6 packet");
           }
         }
       }
+      // we get here if asynchronous handler ran into an Exception writing to the output pipe
+      throw pipeBroken;
     } catch (Exception e) {
       logger.log(Level.WARNING, "Exception in IPv6 reader thread", e);
     } finally {
@@ -219,6 +218,34 @@ public class IPv6InputHandler implements Runnable, BufferWriter {
   }
 
   /**
+   * Helper function to read exactly one packet.
+   * @param buffer
+   * @param ic
+   * @throws IOException
+   */
+  private void readAndVerifyIpv6Packet(ByteBuffer buffer, final ReadableByteChannel ic) throws IOException {
+    buffer.clear();
+    // read header
+    buffer.limit(IPV6PACKET_HEADER_LENGTH);
+    final int bytesReadHeader = ic.read(buffer);
+    if (bytesReadHeader < 0)
+      throw new IllegalStateException ("EOF flagged from input stream during read of header block");
+    buffer.flip();
+    final int packetSize = verifyHeaderReturnPacketLength(buffer);
+    // read packet
+    buffer.position(IPV6PACKET_HEADER_LENGTH);
+    buffer.limit(IPV6PACKET_HEADER_LENGTH + packetSize);
+    final int bytesReadPacket = ic.read(buffer);
+    if (bytesReadPacket < 0)
+      throw new IllegalStateException ("EOF flagged from input stream during read of header block");
+    if (buffer.remaining() > 0) {
+      throw new IOException("Could not read the full packet for header " + dumpHeader(buffer));
+    }
+    buffer.flip();
+    logger.finer(() -> "Received packet, size " + buffer.remaining());
+  }
+
+  /**
    * Write the IPv6 packet to the corresponding DTLS session (i.e. the object with the client IPv6
    * address that is receiver of the packet).
    * 
@@ -229,8 +256,7 @@ public class IPv6InputHandler implements Runnable, BufferWriter {
    */
   private boolean handleIPv6Packet(ByteBuffer buffer) {
     byte[] addr = new byte[16];
-    System.arraycopy(buffer.array(), buffer.position() + IPV6PACKET_DESTINATION_OFFSET + buffer.arrayOffset(),
-        addr, 0, addr.length);
+    buffer.slice().position(IPV6PACKET_DESTINATION_OFFSET).get(addr);
     // TODO in java 16, replace by buffer.get (buffer.position() + IPV6PACKET_DESTINATION_OFFSET, addr);
 
     Inet6Address receiver;
@@ -267,20 +293,20 @@ public class IPv6InputHandler implements Runnable, BufferWriter {
    */
   @Override
   public void write(ByteBuffer bb) throws IOException {
-    List<ByteBuffer> packets = cutConsistentIPv6(bb);
-    for (ByteBuffer packet: packets) {
-      outputChannel.write(packet);
+    int contentLength = (int)verifyHeaderReturnPacketLength(bb);
+    if (contentLength + IPv6InputHandler.IPV6PACKET_HEADER_LENGTH != bb.remaining()) {
+      throw new IOException("Retrieved data do not represent a single IPv6 package " + dumpHeader(bb));
     }
+    
+    outputChannel.write(bb);
   }
 
   /**
-   * @param bb a ByteBuffer containing an IPv6 packet at its position.
-   * @return List&lt;ByteBuffer&gt; an ordered list of ByteBuffers sliced from bb, each representing
-   *         start and end of a single IPv6 packet.
-   * @throws IOException in case of buffer not representing an IPv6 packet, length mismatch of
-   *         buffer remaining and the packet size as indicated by the packet itself
+   * @param bb a buffer supposed to contain a full 40 bytes IPv6 header
+   * @return a short indicating the size of the packet, not including the 40 bytes IPv6 header.
+   * @throws IOException
    */
-  public List<ByteBuffer> cutConsistentIPv6(ByteBuffer bb) throws IOException {
+  public short verifyHeaderReturnPacketLength(ByteBuffer bb) throws IOException {
     if (bb.remaining() < IPV6PACKET_HEADER_LENGTH) {
       throw new IOException("Supplied packet ist too short even for an IPv6 header\n  " + dumpHeader(bb) + "\n");
     }
@@ -294,16 +320,7 @@ public class IPv6InputHandler implements Runnable, BufferWriter {
     if (len < 0) {
       throw new IOException("Invalid packet length in supposed IPv6 packet\n  " + dumpHeader(bb) + "\n");
     }
-    if (bb.remaining() < len + IPV6PACKET_HEADER_LENGTH) {
-      throw new IOException("Attempt to write buffer with inconsistent length information: buffer remaining does not match indicated payload size plus header length\n  " + dumpHeader(bb) + "\n");
-    } else if (bb.remaining() > len + IPV6PACKET_HEADER_LENGTH) {
-      List<ByteBuffer> chain = new LinkedList<ByteBuffer>();
-      chain.add(bb.slice().limit(len + IPV6PACKET_HEADER_LENGTH));
-      chain.addAll(cutConsistentIPv6(bb.slice().position(len + IPV6PACKET_HEADER_LENGTH)));
-      return chain;
-    } else {
-      return Arrays.asList(bb);
-    }
+    return len;
   }
 
   /**
@@ -312,6 +329,10 @@ public class IPv6InputHandler implements Runnable, BufferWriter {
    * @return String representing buffer as hexadecimal string
    */
   private String dumpHeader(ByteBuffer bb) {
-    return Hex.toHexString(bb.array(), bb.arrayOffset() + bb.position(), Math.min(bb.remaining(), 40));
+    StringBuilder sb = new StringBuilder(80);
+    for (int i = bb.position(); i < bb.limit() && i < 40; i++) {
+      sb.append(String.format("%.2x", bb.get(i)));
+    }
+    return sb.toString();
   }
 }

@@ -21,7 +21,6 @@ package de.flyingsnail.ipv6server.dtlstransporter;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.List;
 
 /**
  * This interface represents a class that will accept ByteBuffers, one at a time, through its write method.
@@ -46,11 +45,9 @@ public interface BufferWriter {
   public void write(ByteBuffer bb) throws IOException;
   
   /**
-   * @param bb a ByteBuffer containing an IPv6 packet at its position.
-   * @return List&lt;ByteBuffer&gt; an ordered list of ByteBuffers sliced from bb, each representing
-   *         start and end of a single IPv6 packet.
-   * @throws IOException in case of buffer not representing an IPv6 packet, length mismatch of
-   *         buffer remaining and the packet size as indicated by the packet itself
+   * @param bb a buffer supposed to contain (at least) a full 40 bytes IPv6 header
+   * @return a short indicating the size of the packet, not including the 40 bytes IPv6 header.
+   * @throws IOException
    */
-  public List<ByteBuffer> cutConsistentIPv6(ByteBuffer bb) throws IOException;
+  public short verifyHeaderReturnPacketLength(ByteBuffer bb) throws IOException;
 }
