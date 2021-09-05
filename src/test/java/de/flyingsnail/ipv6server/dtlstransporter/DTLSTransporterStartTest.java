@@ -20,6 +20,7 @@
 package de.flyingsnail.ipv6server.dtlstransporter;
 
 import java.io.IOException;
+import java.nio.file.Path;
 
 import org.bouncycastle.tls.DTLSTransport;
 import org.junit.After;
@@ -40,7 +41,7 @@ public class DTLSTransporterStartTest {
   @Before
   public void setUp() throws Exception {
     TransporterStart.readStaticConfigurationItems();
-    transporterStart = new TransporterStart();
+    transporterStart = new TransporterStart(Path.of("/dev/null"), Path.of("/dev/null"));
   }
 
   /**

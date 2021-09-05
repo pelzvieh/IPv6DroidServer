@@ -155,11 +155,11 @@ void my_err(char *msg, ...) {
  **************************************************************************/
 void dump_header (char *buffer, int length) {
   int i;
-  for (i == 0; i < 40 && i < length; i++) {
-    if (i%10 == 0) {
+  for (i = 0; i < 40 && i < length; i++) {
+    if (i%8 == 0) {
       fputc ('\n', stderr);
     }
-    fprintf (stderr, "%x", buffer[i]);
+    fprintf (stderr, "%.2x", buffer[i]);
   }
   fputc ('\n', stderr);
 }

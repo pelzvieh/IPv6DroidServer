@@ -17,7 +17,7 @@
     <!-- dependency versions -->
     <javaee-api-version>8.0.1-b5</javaee-api-version>
     <junit-version>4.13.1</junit-version>
-    <bouncycastle-version>1.68</bouncycastle-version>
+    <bouncycastle-version>1.69</bouncycastle-version>
   </properties>  
   <distributionManagement>
     <repository>
@@ -94,6 +94,16 @@
       <groupId>org.bouncycastle</groupId>
       <artifactId>bcpkix-jdk15on</artifactId>
       <version>${bouncycastle-version}</version>
+    </dependency>
+    <dependency>
+      <groupId>net.java.dev.jna</groupId>
+      <artifactId>jna</artifactId>
+      <version>5.9.0</version>
+    </dependency>
+    <dependency>
+      <groupId>net.java.dev.jna</groupId>
+      <artifactId>jna-platform</artifactId>
+      <version>5.9.0</version>
     </dependency>
   </dependencies>
   <build>
