@@ -17,7 +17,8 @@
     <!-- dependency versions -->
     <javaee-api-version>8.0.1-b5</javaee-api-version>
     <junit-version>4.13.1</junit-version>
-    <bouncycastle-version>1.68</bouncycastle-version>
+    <bouncycastle-version>1.69</bouncycastle-version>
+    <lxtunchannel-version>1.00</lxtunchannel-version>
   </properties>  
   <distributionManagement>
     <repository>
@@ -94,6 +95,11 @@
       <groupId>org.bouncycastle</groupId>
       <artifactId>bcpkix-jdk15on</artifactId>
       <version>${bouncycastle-version}</version>
+    </dependency>
+    <dependency>
+      <groupId>de.flyingsnail.tun</groupId>
+      <artifactId>LinuxTunChannel</artifactId>
+      <version>${lxtunchannel-verion}</version>
     </dependency>
   </dependencies>
   <build>
