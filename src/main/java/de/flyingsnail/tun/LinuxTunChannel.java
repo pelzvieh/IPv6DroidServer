@@ -28,8 +28,6 @@ import java.nio.channels.WritableByteChannel;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import org.bouncycastle.util.encoders.Hex;
-
 import com.sun.jna.LastErrorException;
 import com.sun.jna.Native;
 import com.sun.jna.Platform;
@@ -157,12 +155,6 @@ public class LinuxTunChannel implements AutoCloseable, ReadableByteChannel, Writ
 
       logger.finer("About to perform ioctl " + TUNSETIFF + " on fd");
       try {
-        // TODO remove debugging
-        ByteBuffer ifreqBB = ifreq.asBuffer();
-        ByteBuffer debug = ByteBuffer.allocate(ifreqBB.remaining());
-        debug.put(ifreqBB.slice());
-        Hex.encode(debug.array(), debug.arrayOffset(), debug.position(), System.err);
-        System.err.println();
         if (ioctl(fd, TUNSETIFF, ifreq.asBuffer()) == -1) {
           throw new IOException("Could not map network device to file descriptor: " + deviceName);
         }

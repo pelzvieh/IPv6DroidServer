@@ -35,6 +35,7 @@ import org.bouncycastle.tls.DTLSTransport;
 import org.bouncycastle.tls.TlsFatalAlert;
 import org.bouncycastle.util.encoders.Hex;
 import org.eclipse.jdt.annotation.NonNull;
+import org.eclipse.jdt.annotation.Nullable;
 
 import de.flyingsnail.tun.LinuxTunChannel;
 
@@ -83,23 +84,13 @@ public class IPv6InputHandler implements Runnable, BufferWriter, AutoCloseable {
    * Constructor
    * @param dtlsData the registry of DTLS sessions per IPv6 address
    * @param tunDevice the name of the tun device to read from via TUNTOPIPE.
-   * @param passUnHandled a boolean indicating if unhandled packets from tun device should be written to stdout. In this case
-   *                      this whole process can act as TUNTOPIPE for another IPv6 tunnel transporter.
+   * @param toAyiya a WritableByteChannel to write packets to that are not handled by this handler. May be null, switching off the feature.
    * @throws IllegalStateException in case of incorrectly deployed application, e.g. if TUNTOPIPE cannot be launched
    */
-  private IPv6InputHandler (@NonNull DTLSData dtlsData, boolean passUnHandled, WritableByteChannel toAyiya) throws IllegalStateException {
+  public IPv6InputHandler(@NonNull DTLSData dtlsData, @NonNull String tunDevice, @Nullable WritableByteChannel toAyiya) throws IllegalStateException, IOException {
     this.dtlsData = dtlsData;
-    this.passUnHandled = passUnHandled;
-    if (passUnHandled) {
-      if (toAyiya == null) {
-        throw new IllegalArgumentException("toAyiya must not be null if passUnHandled is set");
-      }
-      passOnChannel = toAyiya;
-    }
-  }
-
-  public IPv6InputHandler(DTLSData dtlsData, String tunDevice, boolean passThrough, WritableByteChannel toAyiya) throws IllegalStateException, IOException {
-    this(dtlsData, passThrough, toAyiya);
+    this.passUnHandled = (toAyiya != null);
+    passOnChannel = toAyiya;
     logger.info("Constructing process launching IPv6InputHandler");
     
     LinuxTunChannel netDevice = new LinuxTunChannel (tunDevice);
@@ -271,6 +262,8 @@ public class IPv6InputHandler implements Runnable, BufferWriter, AutoCloseable {
   private String dumpHeader(ByteBuffer bb) {
     StringBuilder sb = new StringBuilder(80);
     for (int i = bb.position(); i < bb.limit() && i < 40; i++) {
+      if ((i%8) == 0)
+        sb.append('\n');
       sb.append(String.format("%2x ", bb.get(i)));
     }
     return sb.toString();

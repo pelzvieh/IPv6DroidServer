@@ -12,4 +12,6 @@ java -Djava.util.logging.config.file="${mydir}/logging_ayiya.properties" -jar "$
 retcode=$?
 echo "Transporter ayiya finished with return code $retcode"
 kill %1
+cd
+rm -r "$tmpdir"
 exit $retcode
