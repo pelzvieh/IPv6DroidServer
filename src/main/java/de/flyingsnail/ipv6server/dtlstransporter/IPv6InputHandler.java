@@ -20,30 +20,25 @@
 
 package de.flyingsnail.ipv6server.dtlstransporter;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.net.Inet6Address;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
-import java.nio.channels.Channels;
-import java.nio.channels.FileChannel;
 import java.nio.channels.ReadableByteChannel;
 import java.nio.channels.WritableByteChannel;
-import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.rmi.NoSuchObjectException;
-import java.util.List;
-import java.util.Set;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ForkJoinPool;
-import java.util.concurrent.Future;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.bouncycastle.tls.DTLSTransport;
 import org.bouncycastle.tls.TlsFatalAlert;
+import org.bouncycastle.util.encoders.Hex;
 import org.eclipse.jdt.annotation.NonNull;
+import org.eclipse.jdt.annotation.Nullable;
+
+import de.flyingsnail.tun.LinuxTunChannel;
+
 
 /**
  * IPv6InputHandler constantly reads IP packets from the IPv6 input sourceType. The underlying OS's routing
@@ -54,7 +49,7 @@ import org.eclipse.jdt.annotation.NonNull;
  * @author pelzi
  *
  */
-public class IPv6InputHandler implements Runnable, BufferWriter {
+public class IPv6InputHandler implements Runnable, BufferWriter, AutoCloseable {
     
   private static final int IPV6PACKET_DESTINATION_OFFSET = 24;
 
@@ -83,92 +78,25 @@ public class IPv6InputHandler implements Runnable, BufferWriter {
   
   private WritableByteChannel outputChannel;
 
-  private WritableByteChannel stdoutChannel;
-
-  private Exception pipeBroken;
+  private WritableByteChannel passOnChannel;
 
   /**
    * Constructor
    * @param dtlsData the registry of DTLS sessions per IPv6 address
    * @param tunDevice the name of the tun device to read from via TUNTOPIPE.
-   * @param passUnHandled a boolean indicating if unhandled packets from tun device should be written to stdout. In this case
-   *                      this whole process can act as TUNTOPIPE for another IPv6 tunnel transporter.
+   * @param toAyiya a WritableByteChannel to write packets to that are not handled by this handler. May be null, switching off the feature.
    * @throws IllegalStateException in case of incorrectly deployed application, e.g. if TUNTOPIPE cannot be launched
    */
-  private IPv6InputHandler (@NonNull DTLSData dtlsData, boolean passUnHandled) throws IllegalStateException {
+  public IPv6InputHandler(@NonNull DTLSData dtlsData, @NonNull String tunDevice, @Nullable WritableByteChannel toAyiya) throws IllegalStateException, IOException {
     this.dtlsData = dtlsData;
-    this.passUnHandled = passUnHandled;
-    if (passUnHandled) {
-      stdoutChannel = Channels.newChannel(System.out);
-    }
-  }
-
-  public IPv6InputHandler(DTLSData dtlsData, String tunDevice, Boolean passThrough) throws IllegalStateException {
-    this(dtlsData, passThrough);
+    this.passUnHandled = (toAyiya != null);
+    passOnChannel = toAyiya;
     logger.info("Constructing process launching IPv6InputHandler");
-    Process tunPipe;
-    try {
-      tunPipe = attachToTun(tunDevice);
-    } catch (IOException e) {
-      throw new IllegalStateException ("Cannot launch TUNTOPIPE. Check that it is installed and on the search path", e);
-    }
-  
-    // set input and output streams
-    inputChannel = Channels.newChannel(tunPipe.getInputStream());
-    outputChannel = Channels.newChannel(tunPipe.getOutputStream());
     
-    // launch an consumer on TUNTOPIPE's error stream to log its output
-    Thread errLogger = new Thread (() -> {
-      BufferedReader errorReader = new BufferedReader(new InputStreamReader(tunPipe.getErrorStream()));
-      while (tunPipe.isAlive()) {
-        try {
-          logger.log(Level.INFO, "TUNTOPIPE: {0}", errorReader.readLine());
-        } catch (IOException e) {
-          logger.log(Level.WARNING, "IO exception on TUNTOPIPE error stream", e);
-          try {
-            Thread.sleep(1000l);
-          } catch (InterruptedException e1) {
-            try {
-              errorReader.close();
-            } catch (IOException e2) {
-              // irrelevant
-            }
-            Thread.currentThread().interrupt(); // re-interrupt
-          }
-        }
-      }
-    }, "tuntopipe error logger");
-    errLogger.setDaemon(true);
-    errLogger.start();
-  }
-
-  public IPv6InputHandler(DTLSData dtlsData, Path input, Path output, Boolean passThrough) throws IllegalStateException, IOException {
-    this (dtlsData, passThrough);
-    logger.info(() -> "Constructing pipe based IPv6InputHandler on " + input + " and " + output);
-    // set input and output streams, open in separate Threads, as one might block until the other is operational
-    Future<FileChannel> outFuture = executorPool.submit(() -> FileChannel.open(output, Set.of(StandardOpenOption.APPEND)));
-    Future<FileChannel> inFuture = executorPool.submit(() -> FileChannel.open(input, Set.of (StandardOpenOption.READ)));
-    
-    try {
-      outputChannel = outFuture.get();
-      inputChannel = inFuture.get();
-    } catch (InterruptedException | ExecutionException e) {
-      throw new IOException(e);
-    }
-  }
-
-  private Process attachToTun(@NonNull final String tunDevice) throws IOException {
-    // Construct reader
-    ProcessBuilder pb = new ProcessBuilder("tuntopipe", "-i", tunDevice, "-u");
-    if (logger.isLoggable(Level.FINEST)) {
-      List<String> cmd = pb.command();
-      cmd.add("-d");
-      pb.command(cmd);
-    }
-    // launch
-    logger.info(() -> "Launching TUNTOPIPE on interface " + tunDevice);
-    pb.redirectErrorStream(false);
-    return pb.start();    
+    LinuxTunChannel netDevice = new LinuxTunChannel (tunDevice);
+    logger.fine("Success constructing and mapping tun0");
+    inputChannel = netDevice;
+    outputChannel = netDevice;
   }
 
   /* (non-Javadoc)
@@ -177,28 +105,19 @@ public class IPv6InputHandler implements Runnable, BufferWriter {
   @Override
   public void run() {
     logger.info("Listening for IPv6 packets");
-    final ByteBuffer buffer = ByteBuffer.allocate(64*1024);
+    final ByteBuffer buffer = ByteBuffer.allocateDirect(32767);
     try {
-      final ReadableByteChannel ic = inputChannel;
-      logger.fine("Retrieved input channel");
-      pipeBroken = null;
-      while (pipeBroken == null) {
-        readAndVerifyIpv6Packet(buffer, ic);
+      while (true) {
+        readAndVerifyIpv6Packet(buffer);
         if (!handleIPv6Packet(buffer)) {
           if (passUnHandled) {
             logger.finer(() -> "Passing packet to stdout");
-            try {
-              stdoutChannel.write(buffer);
-            } catch (IOException e) {
-              pipeBroken = e;
-            }
+            passOnChannel.write(buffer);
           } else {
             logger.log(Level.WARNING, "Unsupported IPv6 address referred from incoming IPv6 packet");
           }
         }
       }
-      // we get here if asynchronous handler ran into an Exception writing to the output pipe
-      throw pipeBroken;
     } catch (Exception e) {
       logger.log(Level.WARNING, "Exception in IPv6 reader thread", e);
     } finally {
@@ -223,27 +142,23 @@ public class IPv6InputHandler implements Runnable, BufferWriter {
    * @param ic
    * @throws IOException
    */
-  private void readAndVerifyIpv6Packet(ByteBuffer buffer, final ReadableByteChannel ic) throws IOException {
+  private void readAndVerifyIpv6Packet(ByteBuffer buffer) throws IOException {
     buffer.clear();
-    // read header
-    buffer.limit(IPV6PACKET_HEADER_LENGTH);
-    final int bytesReadHeader = ic.read(buffer);
-    if (bytesReadHeader < 0)
-      throw new IllegalStateException ("EOF flagged from input stream during read of header block");
+    // read packet
+    final int bytesRead = inputChannel.read(buffer);
+    if (bytesRead < 0)
+      throw new IOException("EOF flagged from input stream during read of header block");
+    if (bytesRead < IPV6PACKET_HEADER_LENGTH)
+      throw new IOException("Not even a full header read");
     buffer.flip();
     final int packetSize = verifyHeaderReturnPacketLength(buffer);
-    // read packet
-    buffer.position(IPV6PACKET_HEADER_LENGTH);
-    buffer.limit(IPV6PACKET_HEADER_LENGTH + packetSize);
-    final int bytesReadPacket = ic.read(buffer);
-    if (bytesReadPacket < 0)
-      throw new IllegalStateException ("EOF flagged from input stream during read of header block");
-    if (buffer.remaining() > 0) {
-      throw new IOException("Could not read the full packet for header " + dumpHeader(buffer));
+    if (buffer.remaining() != packetSize + IPV6PACKET_HEADER_LENGTH) {
+      throw new IOException("Packet size from header " + packetSize + " is inconsistent with read packet length " + bytesRead);
     }
-    buffer.flip();
     logger.finer(() -> "Received packet, size " + buffer.remaining());
   }
+
+  private ByteBuffer javaArrayBuffer = ByteBuffer.allocate(32767);
 
   /**
    * Write the IPv6 packet to the corresponding DTLS session (i.e. the object with the client IPv6
@@ -274,7 +189,23 @@ public class IPv6InputHandler implements Runnable, BufferWriter {
     }
     
     try {
-      dtlsServer.send(buffer.array(), buffer.arrayOffset() + buffer.position(), buffer.remaining());
+      if (buffer.hasArray()) {
+        logger.fine(()->"About to send " + buffer.remaining() + " bytes from array-backed buffer to dtls");
+        dtlsServer.send(buffer.array(), buffer.arrayOffset() + buffer.position(), buffer.remaining());
+        buffer.position(buffer.limit());
+      } else {
+        logger.fine(()->"About to send " + buffer.remaining() + " bytes from direct buffer to dtls");
+
+        synchronized (javaArrayBuffer) {
+          javaArrayBuffer.clear();
+          javaArrayBuffer.put(buffer);
+          logger.finer(()->"About to send copied " + javaArrayBuffer.position() + " bytes to dtls");
+          logger.finest(()->"Buffer content: " +
+            new String(Hex.encode(javaArrayBuffer.array(), javaArrayBuffer.arrayOffset(), javaArrayBuffer.position()))
+          );
+          dtlsServer.send(javaArrayBuffer.array(), javaArrayBuffer.arrayOffset(), javaArrayBuffer.position());
+        }
+      }
     } catch (TlsFatalAlert e) {
       logger.log(Level.WARNING, "Fatal signal from DTLS engine, client session died for " + receiver, e);
       dtlsData.removeServer(receiver);
@@ -331,8 +262,15 @@ public class IPv6InputHandler implements Runnable, BufferWriter {
   private String dumpHeader(ByteBuffer bb) {
     StringBuilder sb = new StringBuilder(80);
     for (int i = bb.position(); i < bb.limit() && i < 40; i++) {
-      sb.append(String.format("%.2x", bb.get(i)));
+      if ((i%8) == 0)
+        sb.append('\n');
+      sb.append(String.format("%2x ", bb.get(i)));
     }
     return sb.toString();
+  }
+
+  @Override
+  public void close() throws Exception {
+    
   }
 }

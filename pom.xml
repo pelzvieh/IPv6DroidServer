@@ -19,6 +19,7 @@
     <junit-version>4.13.1</junit-version>
     <bouncycastle-version>1.69</bouncycastle-version>
     <lxtunchannel-version>1.0.0</lxtunchannel-version>
+    <jna-version>5.9.0</jna-version>
   </properties>  
   <distributionManagement>
     <repository>
@@ -100,6 +101,11 @@
       <groupId>de.flyingsnail.tun</groupId>
       <artifactId>LinuxTunChannel</artifactId>
       <version>${lxtunchannel-version}</version>
+    </dependency>
+    <dependency>
+      <groupId>net.java.dev.jna</groupId>
+      <artifactId>jna-platform</artifactId>
+      <version>${jna-version}</version>
     </dependency>
   </dependencies>
   <build>

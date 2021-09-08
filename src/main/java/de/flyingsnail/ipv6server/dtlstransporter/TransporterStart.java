@@ -24,20 +24,27 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.file.Path;
 import java.net.Inet4Address;
 import java.net.Inet6Address;
 import java.net.InetSocketAddress;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.channels.ReadableByteChannel;
+import java.nio.channels.WritableByteChannel;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.rmi.NoSuchObjectException;
 import java.security.Security;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.Properties;
+import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.LogManager;
 import java.util.logging.Logger;
 
-import org.bouncycastle.tls.DTLSTransport;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
+import org.bouncycastle.tls.DTLSTransport;
 import org.eclipse.jdt.annotation.NonNull;
 
 import sun.misc.Signal;
@@ -49,10 +56,6 @@ import sun.misc.Signal;
  */
 public class TransporterStart implements DTLSData {
   
-  private static final String SOURCE_TUNTOPIPE = "tuntopipe";
-
-  private static final String SOURCE_STDIN = "stdin";
-
   public static final long RE_READ_TUNNELS_MIN_INTERVAL_MILLIS = 300000l;
 
   /** Default period in which a cleaner thread checks for expired tunnels, in Milliseconds. */
@@ -83,24 +86,54 @@ public class TransporterStart implements DTLSData {
 
   private DTLSListener dtlsListener;
 
+  private WritableByteChannel toAyiya;
+  
+  private ReadableByteChannel fromAyiya;
+
   
   private static Logger logger = Logger.getLogger(TransporterStart.class.getName());
 
-  private static Boolean passThrough;
   
-  enum Source { TUNTOPIPE, FILEDESC };
-  
-  private static Source source;
-  
-  private static Path input = null;
-  private static Path output = null;
-
-
 
   /**
    * @param args the command line arguments
    */
   public static void main(String[] args) {
+    Path input = null;
+    Path output = null;
+    boolean passThrough;
+
+    if (args.length == 2) {
+      passThrough = true;
+      String in = args[0];
+      String out = args[1];
+      input = Path.of(in);
+      output = Path.of(out);
+      if (!input.toFile().exists()) {
+        System.err.println (String.format("File %s not found", in));
+        System.exit(EXIT_IO_ERR);
+      }
+      if (!output.toFile().exists()) {
+        System.err.println (String.format("File %s not found", out));
+        System.exit(EXIT_IO_ERR);
+      }
+      
+    } else if (args.length == 0) {
+      passThrough = false;
+    } else { // ungültige Zahl von Argumenten
+      passThrough = false;
+      String myJar;
+      try {
+        myJar = TransporterStart.class.getProtectionDomain().getCodeSource().getLocation().toURI().getPath();
+      } catch (Exception e) {
+        Logger.getAnonymousLogger().log(Level.WARNING, "Could not determine name of executable jar for user help", e);
+        myJar = "<executable jar file>";
+      }
+      System.err.println(String.format("Syntax: %s [<named pipe for input> <named pipe for output>]", myJar));
+      System.exit(EXIT_CONFIG_ERR);
+    }
+
+    
     try {
       InputStream loggingConfigIS = ClassLoader.getSystemResourceAsStream("logging.properties");
       if (loggingConfigIS != null) {
@@ -120,31 +153,12 @@ public class TransporterStart implements DTLSData {
 
       readStaticConfigurationItems();
       
-      // if in pipe mode, read channels from args
-      if (source == Source.FILEDESC) {
-        if (args.length != 2) {
-          System.err.println("Syntax: TransporterStart /dev/fd/[input fd] /dev/fd/[output fd]");
-          System.exit(1);
-        }
-        
-        input = Path.of(args[0]);
-        if (!input.toFile().canRead()) {
-          System.err.println("Cannot read from " + args[0]);
-          System.exit(2);
-        }
-        output = Path.of (args[1]);
-        if (!output.toFile().canWrite()) {
-          System.err.println("Cannot write to " + args[1]);
-          System.exit(3);
-        }
-      }
-      
       // register BouncyCastle provider
       Security.addProvider(new BouncyCastleProvider());
       System.setProperty("org.bouncycastle.x509.enableCRLDP", "true");
 
       // construct our instance      
-      TransporterStart ts = new TransporterStart();
+      TransporterStart ts = passThrough ? new TransporterStart() : new TransporterStart(input, output);
       
       // Setup signal handler for USR2 to print summary of tunnels to logfile on kill -USR1
       Signal.handle(new Signal("USR2"), (Signal sig) ->
@@ -166,6 +180,7 @@ public class TransporterStart implements DTLSData {
       
       // now run until something terminal happens
       int exitCode = ts.run();
+      
       System.exit(exitCode);
     } catch (IllegalStateException ise) {
       logger.log(Level.SEVERE, "Unrecoverable configuration error", ise);
@@ -204,29 +219,13 @@ public class TransporterStart implements DTLSData {
     ipv4SocketAddress = new InetSocketAddress (ip, Integer.valueOf(port));
     logger.config(() -> "bind address: " + ipv4SocketAddress);
     
-    String passThroughFlag = config.getProperty("passthrough", "true");
-    passThrough = Boolean.valueOf(passThroughFlag);
-    logger.config(()-> passThrough ? "pass through" : "no pass through");
-    
-    String sourceString = config.getProperty("source", SOURCE_TUNTOPIPE);
-    switch (sourceString) {
-      case SOURCE_TUNTOPIPE:
-        source = Source.TUNTOPIPE;
-        break;
-      case SOURCE_STDIN:
-        source = Source.FILEDESC;
-        break;
-      default:
-        throw new IllegalStateException ("No such source available: " + sourceString);
-        
-    }
   }
 
   /**
-   * Constructor.
-   * @throws IOException in case of network problems
+   * Constructor. Transporter without delegation to other protocol.
+   * @throws IOException in case of communication problems.
    */
-  public TransporterStart() throws IOException  {
+  public TransporterStart() throws IOException {
     super();
     this.dtlsHash = new HashMap<>();
     // close all active sessions if the vm shuts down
@@ -238,18 +237,29 @@ public class TransporterStart implements DTLSData {
     params.portPop = ipv4SocketAddress.getPort();
     params.mtu = 1300;
     dtlsListener = new DTLSListener(params);
-    logger.info(() -> "TransporterStart constructed for " + params.ipv4Pop + ":" + params.portPop);
   }
 
   /**
-   * Run the copying process
+   * Constructor for a transporter with delegation to another protocol.
+   * @param output the path of a named pipe to write ipv6 packets to, that are not handled by this transporter.
+   * @param input  the path of a named pipe to read additional ipv6 packets from.
+   * @throws IOException in case of network problems
+   */
+  public TransporterStart(Path input, Path output) throws IOException  {
+    this();
+    toAyiya = FileChannel.open(output, Set.of(StandardOpenOption.APPEND, StandardOpenOption.WRITE));
+    fromAyiya = FileChannel.open(input, Set.of(StandardOpenOption.READ));
+  }
+
+  /**
+   * Run the copying process. It will continue to run as long as all required
+   * components are in orderly state.
+   * @return a Unix return value, i.e. 0 for success.
    */
   private int run() {
     IPv6InputHandler ipv6InputHandler;
     try {
-      ipv6InputHandler = (source == Source.TUNTOPIPE) ? 
-          new IPv6InputHandler(this, "tun0", passThrough) : 
-          new IPv6InputHandler(this, input, output, passThrough);
+      ipv6InputHandler = new IPv6InputHandler(this, "tun0", toAyiya);
     } catch (IllegalStateException | IOException e) {
       logger.log(Level.SEVERE, "Could not start IPv6InputHandler", e);
       return EXIT_IO_ERR;
@@ -262,13 +272,43 @@ public class TransporterStart implements DTLSData {
     ip6Thread.setDaemon(true);
     ip4Thread.start();
     ip6Thread.start();
+    
+    Thread ip6InThread = null;
+    if (fromAyiya != null) {
+      ip6InThread = new Thread(new Runnable() {
+        public void run() {
+          ByteBuffer packet = ByteBuffer.allocateDirect(32767);
+          try { 
+            while (fromAyiya.isOpen()) {
+              packet.clear();
+              fromAyiya.read(packet);
+              packet.flip();
+              ipv6InputHandler.write(packet);
+            }
+          } catch (IOException e) {
+            logger.log(Level.SEVERE, "Back-Pipe from ayiya transporter broken", e);
+          }
+        }
+      }, "IPv6BackPassThread");
+      ip6InThread.setDaemon(true);
+      ip6InThread.start();
+    }
 
     logger.info("Startup completed, threads running");
-    monitorThreads (new Thread[] {ip4Thread, ip6Thread});
+    monitorThreads (
+        (fromAyiya != null) ?
+          new Thread[] {ip4Thread, ip6Thread, ip6InThread}
+        : new Thread[] {ip4Thread, ip6Thread}
+        );
     logger.warning("Thread monitor ended, will terminate");
     return EXIT_NORMAL;
   }
 
+  /**
+   * Wait as long as one of the supplied threads ends. This method returning means
+   * that at least one of the supplied threads has ceased.
+   * @param threads an Array of Thread objects that are expected to run for orderly operations.
+   */
   private void monitorThreads(Thread[] threads) {
     while (true)
       for (Thread thread: threads) {
@@ -291,17 +331,19 @@ public class TransporterStart implements DTLSData {
 
 
   /**
-   * Close all active sessions.
+   * Before JVM shutdown: Close all active sessions.
    */
   private void exitHandler() {
     logger.info("Exit handler activated, closing all sessions");
-    for (Inet6Address address: dtlsHash.keySet()) {
+    Iterator<Inet6Address> addresses = dtlsHash.keySet().iterator();
+    while (addresses.hasNext())  {
+      Inet6Address address = addresses.next();
       try {
         getServer(address).close();
+        addresses.remove();
       } catch (IOException e) {
         logger.warning(() -> "Shutting down session " + address.toString() + " failed.");
       }
-      removeServer(address);
     }
   }
 
