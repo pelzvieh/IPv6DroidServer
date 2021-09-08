@@ -170,6 +170,11 @@ public class IPv4InputHandler implements Runnable, ConnectedClientHandler {
       logger.log(Level.WARNING, e, () -> "Connection lost with client " + client.getHostString());
     } finally {
       logger.log(Level.INFO, "Client {0}/{1} is gone", new Object[] {client.getHostString(), clientAddress});
+      try {
+        dtlsTransport.close();
+      } catch (Exception e) {
+        logger.log(Level.WARNING, "Could not close dtls session cleanly", e);
+      }
       dtlsData.removeServer(clientAddress);
     }
   }
@@ -182,8 +187,10 @@ public class IPv4InputHandler implements Runnable, ConnectedClientHandler {
   private void closePreviousSession(Inet6Address testAddress) throws IOException {
     try {
       DTLSTransport previousSession = dtlsData.getServer(testAddress);
-      if (previousSession != null)
+      if (previousSession != null) {
         previousSession.close(); // the still running handler will learn it the hard way :-)
+        dtlsData.removeServer(testAddress);
+      }
     } catch (NoSuchObjectException e) {
       // no previous instance, fine!
     }
