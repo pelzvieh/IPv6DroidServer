@@ -3,7 +3,7 @@
   <artifactId>IPv6DTLSTransport</artifactId>
   <name>IPv6 DTLS Transport</name>
   <groupId>de.flyingsnail.ipv6server</groupId>
-  <version>0.2.9-SNAPSHOT</version>
+  <version>0.2.9</version>
   <properties>
     <!-- encoding -->
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -172,6 +172,6 @@
   <scm>
     <connection>scm:git:https://github.com/pelzvieh/IPv6DroidServer</connection>
     <url>https://github.com/pelzvieh/IPv6DroidServer</url>
-    <tag>HEAD</tag>
+    <tag>IPv6DTLSTransport-0.2.9</tag>
   </scm>
 </project>
