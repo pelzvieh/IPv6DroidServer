@@ -145,11 +145,8 @@ public class IPv4InputHandler implements Runnable, ConnectedClientHandler {
       while (true) {
         bb.clear();
         int bytesRead = dtlsTransport.receive(bb.array(), bb.arrayOffset() + bb.position(), bb.limit() - bb.position(), 60 * 1000);
-        if (bytesRead < 0) {
-          logger.fine("dtlsTransport indicates eof");
-          break;
-        } else if (bytesRead == 0) {
-          logger.finer(() -> "read 0 bytes within timeout " + client.getHostString());
+        if (bytesRead <= 0) {
+          logger.finer(() -> "read no valid bytes within timeout " + client.getHostString());
           try {
             Thread.sleep(100L);
           } catch (InterruptedException e) {

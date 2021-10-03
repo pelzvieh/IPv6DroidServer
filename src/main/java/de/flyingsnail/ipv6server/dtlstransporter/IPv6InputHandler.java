@@ -187,9 +187,12 @@ public class IPv6InputHandler implements Runnable, BufferWriter, AutoCloseable {
     } catch (NoSuchObjectException e) {
       return false;
     }
-    
+        
     try {
-      if (buffer.hasArray()) {
+      int mtu = dtlsServer.getSendLimit();
+      if (buffer.remaining() > mtu) {
+        sendPacketTooBig(receiver, mtu);
+      } else if (buffer.hasArray()) {
         logger.fine(()->"About to send " + buffer.remaining() + " bytes from array-backed buffer to dtls");
         dtlsServer.send(buffer.array(), buffer.arrayOffset() + buffer.position(), buffer.remaining());
         buffer.position(buffer.limit());
@@ -216,6 +219,11 @@ public class IPv6InputHandler implements Runnable, BufferWriter, AutoCloseable {
     }
     logger.log(Level.FINE, "Send IPv6 packet for address {0} to {1}", new Object[] {receiver, dtlsServer});
     return true;
+  }
+
+  private void sendPacketTooBig(Inet6Address receiver, int mtu) {
+    // TODO create ICMP packet too big packet (ICMP type 2)
+    logger.warning("Unimplemented: too big packet recieved");
   }
 
   /**
