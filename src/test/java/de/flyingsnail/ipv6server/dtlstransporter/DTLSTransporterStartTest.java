@@ -22,10 +22,11 @@ package de.flyingsnail.ipv6server.dtlstransporter;
 import java.io.IOException;
 import java.nio.file.Path;
 
-import org.bouncycastle.tls.DTLSTransport;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+
+import de.flyingsnail.ipv6server.dtlstransporter.DTLSData.ServerTransportTupel;
 
 /**
  * @author pelzi
@@ -52,10 +53,10 @@ public class DTLSTransporterStartTest {
   }
 
   @Test
-  public void test() throws IOException {
-    Iterable<DTLSTransport> sessions = transporterStart.getAll();
-    for (DTLSTransport session: sessions) {
-      System.out.println("- " + session.toString());
+  public void testGetAll() throws IOException {
+    Iterable<ServerTransportTupel> sessions = transporterStart.getAll();
+    for (ServerTransportTupel session: sessions) {
+      System.out.println("- " + session.getTransport().toString());
     }
   }
 }

@@ -27,12 +27,16 @@ import java.net.SocketException;
 import java.nio.ByteBuffer;
 import java.rmi.NoSuchObjectException;
 import java.util.Date;
+import java.util.Timer;
+import java.util.TimerTask;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.bouncycastle.tls.DTLSTransport;
 import org.bouncycastle.tls.TlsTimeoutException;
 import org.eclipse.jdt.annotation.NonNull;
+
+import de.flyingsnail.ipv6server.dtlstransporter.DTLSData.ServerTransportTupel;
 
 
 /**
@@ -42,13 +46,15 @@ import org.eclipse.jdt.annotation.NonNull;
  *
  */
 public class IPv4InputHandler implements Runnable, ConnectedClientHandler {
+  private final long maxExpiryCheckDelay;
   private @NonNull DTLSData dtlsData;
   private @NonNull DTLSListener dtlsServer;
   private Logger logger = Logger.getLogger(getClass().getName());
   private @NonNull BufferWriter ipv6out;
   private Date lastPacketReceivedTime;
   private boolean validPacketReceived;
-  private int invalidPacketCounter;    
+  private int invalidPacketCounter;
+  private Timer timer;
 
   /**
    * Constructor.
@@ -57,10 +63,14 @@ public class IPv4InputHandler implements Runnable, ConnectedClientHandler {
    * @param dtlsServer the DTLS equivalent of a ServerSocket, accepting new connections
    * @param ipv6out the BufferWriter to write IPv6 packets to
    */
-  public IPv4InputHandler(@NonNull DTLSData dtlsData, @NonNull DTLSListener dtlsServer, @NonNull BufferWriter ipv6out) {
+  public IPv4InputHandler(@NonNull DTLSData dtlsData, 
+      @NonNull DTLSListener dtlsServer, 
+      @NonNull BufferWriter ipv6out,
+      long maxExpiryCheckDelay) {
     this.dtlsData = dtlsData;
     this.ipv6out = ipv6out;
     this.dtlsServer = dtlsServer;
+    this.maxExpiryCheckDelay = maxExpiryCheckDelay;
   }
 
   /* (non-Javadoc)
@@ -70,12 +80,77 @@ public class IPv4InputHandler implements Runnable, ConnectedClientHandler {
   public void run() {    
     try {
       logger.info("Startup completed, listening for UDP packets");
+      startExpireMonitor();
       dtlsServer.listen(this);
     } catch (IOException e) {
       logger.log(Level.WARNING, "Unexpected IOException terminates echoing server", e);
+    } finally {
+      stopExpireMonitor();
     }
 
   }
+
+  private synchronized void startExpireMonitor() {
+    if (timer == null) {
+      timer = new Timer();
+    }
+    nextExpireMonitor();
+  }
+  
+  
+
+  private void nextExpireMonitor() {
+    Date nextExpiration = checkExpired();
+    Date now = new Date();
+    if (nextExpiration == null || nextExpiration.getTime() > now.getTime() + maxExpiryCheckDelay) {
+      nextExpiration = new Date(now.getTime() + maxExpiryCheckDelay);
+    }
+    timer.schedule(new TimerTask() {
+      @Override
+      public void run() {
+        nextExpireMonitor();        
+      }}, nextExpiration);
+    logger.log(Level.INFO, "Next expiration check at " + nextExpiration);
+  }
+
+  /**
+   * Close all transport associated with an expired certificate.
+   * @return a Date giving the time when the next expiration will happen.
+   */
+  private Date checkExpired() {
+    logger.log(Level.INFO, "Checking for sessions with expired certificate");
+
+    Date expiry = null;
+    Date now = new Date();
+    for (ServerTransportTupel serverTransport: dtlsData.getAll()) {
+      Date expires = serverTransport.getServer().getExpiryDate();
+      if (expires != null) {
+        // this tunnel has an expiration set
+        if (expires.before(now)) {
+          // this tunnel's certificate has expired
+          try {
+            serverTransport.getTransport().close();
+            logger.log(Level.INFO, () -> "Closed expired session for " + serverTransport.getTransport());
+
+          } catch (IOException e) {
+            logger.log(Level.WARNING, e, 
+                () -> "Failed to close transporter on expiry of " + serverTransport.getTransport());
+          }
+        } else if (expiry == null || expires.before(expiry)) {
+          // determine the next occurring expiry in expiry
+          expiry = expires;
+        }
+      }
+    }
+    return expiry;
+  }
+  
+  private synchronized void stopExpireMonitor() {
+    timer.cancel();
+    timer = null;
+  }
+
+
 
   /**
    * Write next packet from the tunnel to the IPv6 device.
@@ -137,7 +212,7 @@ public class IPv4InputHandler implements Runnable, ConnectedClientHandler {
       closePreviousSession(clientAddress);
 
       // register the DTLSTransport event for the address. After this, traffic to this IPv6 address will be routed to the dtlsTransport
-      dtlsData.putServer(clientAddress, dtlsTransport);
+      dtlsData.putServerAndTransport(clientAddress, dtlsServer, dtlsTransport);
 
       ByteBuffer bb = ByteBuffer.allocate(dtlsTransport.getReceiveLimit());
       logger.info("Handling client " + client.getHostString());
@@ -172,7 +247,7 @@ public class IPv4InputHandler implements Runnable, ConnectedClientHandler {
       } catch (Exception e) {
         logger.log(Level.WARNING, "Could not close dtls session cleanly", e);
       }
-      dtlsData.removeServer(clientAddress);
+      dtlsData.removeServerTransport(clientAddress);
     }
   }
 
@@ -183,10 +258,11 @@ public class IPv4InputHandler implements Runnable, ConnectedClientHandler {
    */
   private void closePreviousSession(Inet6Address testAddress) throws IOException {
     try {
-      DTLSTransport previousSession = dtlsData.getServer(testAddress);
+      ServerTransportTupel previousSession = dtlsData.getServerTransport(testAddress);
       if (previousSession != null) {
-        previousSession.close(); // the still running handler will learn it the hard way :-)
-        dtlsData.removeServer(testAddress);
+        previousSession.getTransport().close(); // the still running handler will learn it the hard way :-)
+        dtlsData.removeServerTransport(testAddress);
+        logger.log(Level.INFO, () -> "Closed previous session for " + testAddress);
       }
     } catch (NoSuchObjectException e) {
       // no previous instance, fine!

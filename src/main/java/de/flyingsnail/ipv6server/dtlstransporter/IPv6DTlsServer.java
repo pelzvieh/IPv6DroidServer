@@ -24,6 +24,7 @@ package de.flyingsnail.ipv6server.dtlstransporter;
 import java.io.IOException;
 import java.security.SecureRandom;
 import java.util.Base64;
+import java.util.Date;
 import java.util.Vector;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -72,6 +73,15 @@ class IPv6DTlsServer extends DefaultTlsServer {
 
   private TlsCertificate clientCert;
 
+  private Date expiryDate;
+
+
+  /**
+   * @return the expiryDate
+   */
+  public Date getExpiryDate() {
+    return expiryDate;
+  }
 
   public IPv6DTlsServer(int heartbeat)  {
     super(new BcTlsCrypto(new SecureRandom()));
@@ -79,23 +89,28 @@ class IPv6DTlsServer extends DefaultTlsServer {
     String[] caResourceNames = new String[]{"dtlsserver.cert", "ca.cert"};
     try {
       serverCertChain = DTLSUtils.loadCertificateChain (getCrypto(), caResourceNames);
+      logger.finest("Survived DTLSUtils code");
     } catch (IOException e) {
       throw new IllegalStateException("Incorrectly bundled, failure to read certificates", e);
     }
+    logger.finer("Certificate chain loaded");
 
     trustedCA = serverCertChain.getCertificateAt(caResourceNames.length-1);
 
     try {
       privateKey = DTLSUtils.loadBcPrivateKeyResource("dtlsserver.key");
+      logger.finest("Survived DTLSUtils code");
     } catch (IOException e) {
       throw new IllegalStateException("Incorrectly bundled, failure to read private key", e);
     }
+    logger.finer("private key loaded");
     
     chainChecker = new ChainChecker(trustedCA);
     
     // self-check configuration: we would need to accept our own certificate!
     try {
       chainChecker.checkChain(serverCertChain.getCertificateList());
+      logger.finer("Trust chain checked OK");
     } catch (Exception e) {
       try {
         logger.fine("Failed to verify cert chain of server itself:\n" 
@@ -107,7 +122,7 @@ class IPv6DTlsServer extends DefaultTlsServer {
             + "\n-----END CERTIFICATE-----\n"
             );
       } catch (IOException e1) {
-        logger.log(Level.WARNING, "Cannot generated diagnostics for mal-configuration", e1);
+        logger.log(Level.WARNING, "Cannot generate diagnostics for mal-configuration", e1);
       }
 
       throw new IllegalStateException("I wouldn't even trust myself", e);
@@ -206,7 +221,7 @@ class IPv6DTlsServer extends DefaultTlsServer {
       }
     }
 
-    chainChecker.checkChain(chain);
+    expiryDate = chainChecker.checkChain(chain);
     clientCert = chain [0];
   }
 

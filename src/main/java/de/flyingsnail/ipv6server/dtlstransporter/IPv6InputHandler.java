@@ -183,7 +183,7 @@ public class IPv6InputHandler implements Runnable, BufferWriter, AutoCloseable {
     }
     DTLSTransport dtlsServer;
     try {
-      dtlsServer = dtlsData.getServer(receiver);
+      dtlsServer = dtlsData.getServerTransport(receiver).getTransport();
     } catch (NoSuchObjectException e) {
       return false;
     }
@@ -211,7 +211,7 @@ public class IPv6InputHandler implements Runnable, BufferWriter, AutoCloseable {
       }
     } catch (TlsFatalAlert e) {
       logger.log(Level.WARNING, "Fatal signal from DTLS engine, client session died for " + receiver, e);
-      dtlsData.removeServer(receiver);
+      dtlsData.removeServerTransport(receiver);
       return false;
     } catch (IOException e) {
       logger.log(Level.WARNING, "Handling of packet caused IO exception, client session might recover", e);

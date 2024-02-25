@@ -85,18 +85,21 @@ class DTLSUtils {
 
   public static AsymmetricKeyParameter loadBcPrivateKeyResource(String keyResource) throws IOException {
     PemObject pem = loadPemResource(keyResource);
+    logger.finer(()->"Loaded PEM resource " + keyResource + ", type: " + pem.getType());
     switch (pem.getType()) {
     case "PRIVATE KEY":
       return PrivateKeyFactory.createKey(pem.getContent());
     case "RSA PRIVATE KEY":
       // this is the relevant case with the bundled resources
       RSAPrivateKey rsa = RSAPrivateKey.getInstance(pem.getContent());
+      logger.finest("Created RSAPrivateKey instance from PEM");
       return new RSAPrivateCrtKeyParameters(rsa.getModulus(), rsa.getPublicExponent(),
           rsa.getPrivateExponent(), rsa.getPrime1(), rsa.getPrime2(), rsa.getExponent1(),
           rsa.getExponent2(), rsa.getCoefficient());
     case "EC PRIVATE KEY":
       ECPrivateKey pKey = ECPrivateKey.getInstance(pem.getContent());
-      AlgorithmIdentifier algId = new AlgorithmIdentifier(X9ObjectIdentifiers.id_ecPublicKey, pKey.getParameters());
+      AlgorithmIdentifier algId = new AlgorithmIdentifier(X9ObjectIdentifiers.id_ecPublicKey, 
+          pKey.getParametersObject());
       PrivateKeyInfo privInfo = new PrivateKeyInfo(algId, pKey);
       return PrivateKeyFactory.createKey(privInfo);
     case "ENCRYPTED PRIVATE KEY":
@@ -120,7 +123,8 @@ class DTLSUtils {
           rsa.getExponent2(), rsa.getCoefficient());
     case "EC PRIVATE KEY":
       ECPrivateKey pKey = ECPrivateKey.getInstance(pem.getContent());
-      AlgorithmIdentifier algId = new AlgorithmIdentifier(X9ObjectIdentifiers.id_ecPublicKey, pKey.getParameters());
+      AlgorithmIdentifier algId = new AlgorithmIdentifier(X9ObjectIdentifiers.id_ecPublicKey, 
+          pKey.getParametersObject());
       PrivateKeyInfo privInfo = new PrivateKeyInfo(algId, pKey);
       return PrivateKeyFactory.createKey(privInfo);
     case "ENCRYPTED PRIVATE KEY":

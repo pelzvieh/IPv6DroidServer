@@ -36,7 +36,6 @@ import java.nio.file.StandardOpenOption;
 import java.rmi.NoSuchObjectException;
 import java.security.Security;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.Properties;
 import java.util.Set;
 import java.util.logging.Level;
@@ -56,11 +55,6 @@ import sun.misc.Signal;
  */
 public class TransporterStart implements DTLSData {
   
-  public static final long RE_READ_TUNNELS_MIN_INTERVAL_MILLIS = 300000l;
-
-  /** Default period in which a cleaner thread checks for expired tunnels, in Milliseconds. */
-  public static final long CLEANER_PERIOD = 5l * 1000l * 60l;
-
   /** Exit code on normal completion */
   private static final int EXIT_NORMAL = 0;
 
@@ -80,9 +74,15 @@ public class TransporterStart implements DTLSData {
 
   /** My IPv4 socket address (i.e. IP and port) */
   private static InetSocketAddress ipv4SocketAddress;
-    
+
+  /** 
+   * Maximum delay between two checks for sessions with 
+   * expired certificates in milliseconds 
+   * */
+  private static Long expiryPeriod;
+
   /** Regitry of IPv6 addresses towards DTLS sessions */
-  private HashMap<Inet6Address, DTLSTransport> dtlsHash;
+  private HashMap<Inet6Address, ServerTransportTupel> dtlsHash;
 
   private DTLSListener dtlsListener;
 
@@ -92,8 +92,6 @@ public class TransporterStart implements DTLSData {
 
   
   private static Logger logger = Logger.getLogger(TransporterStart.class.getName());
-
-  
 
   /**
    * @param args the command line arguments
@@ -120,7 +118,7 @@ public class TransporterStart implements DTLSData {
       
     } else if (args.length == 0) {
       passThrough = false;
-    } else { // ungültige Zahl von Argumenten
+    } else { // invalid number of arguments
       passThrough = false;
       String myJar;
       try {
@@ -146,7 +144,8 @@ public class TransporterStart implements DTLSData {
         // try to read a separate configuration file, if it exists
         loggingConfigIS = new FileInputStream(new File("logging_dtls.properties"));
         LogManager.getLogManager().readConfiguration(loggingConfigIS);
-        logger.log(Level.INFO, "Bundled logging configuration read");
+        logger.log(Level.INFO, "Detached logging configuration read");
+        logger.log(Level.FINEST, "Logger is logging extreme verbose");
       } catch (FileNotFoundException e) {
         logger.info("No extracted logging configuration found");
       }
@@ -166,21 +165,24 @@ public class TransporterStart implements DTLSData {
           logger.log(Level.INFO, "Catched signal USR2, printing tunnel info");
           long count = ts.activeTunnelCount();
           logger.log(Level.INFO, "Connected tunnels count: " + count);
-          ts.dtlsHash.forEach((Inet6Address ipv6, DTLSTransport server) 
+          ts.dtlsHash.forEach((Inet6Address ipv6, ServerTransportTupel serverTransport) 
               -> logger.log(Level.INFO, 
-                            String.format(" %s <-> %s", server.toString(), ipv6.toString())
+                            String.format(" %s <-> %s", serverTransport.getTransport().toString(), ipv6.toString())
                   )
               );
         }
       );
       
       // provoke check of certificate chain by constructing an otherwise unused server instance
+      //MySecurityManager secManager = new MySecurityManager();
+      //System.setSecurityManager(secManager);
+      logger.finest("Trying to construct an IPv6DTlsServer");
       final IPv6DTlsServer server = new IPv6DTlsServer(1000);
-      logger.finer(()->"Construction of test IPv6DTlsServer succeeded: " + server);
+      logger.finer(()->"Construction of IPv6DTlsServer succeeded: " + server);
       
       // now run until something terminal happens
       int exitCode = ts.run();
-      
+      logger.info("Transport server main loop exited with result " + exitCode);
       System.exit(exitCode);
     } catch (IllegalStateException ise) {
       logger.log(Level.SEVERE, "Unrecoverable configuration error", ise);
@@ -218,7 +220,11 @@ public class TransporterStart implements DTLSData {
     
     ipv4SocketAddress = new InetSocketAddress (ip, Integer.valueOf(port));
     logger.config(() -> "bind address: " + ipv4SocketAddress);
-    
+
+    String expiryPeriodString = config.getProperty("expiry_period_ms");
+    if (expiryPeriodString == null || "".equals(expiryPeriodString))
+      throw new IllegalStateException ("No expiryPeriod configured");
+    expiryPeriod = Long.valueOf(expiryPeriodString);
   }
 
   /**
@@ -266,7 +272,7 @@ public class TransporterStart implements DTLSData {
     }
     logger.info("IPv6InputHandler is constructed");
 
-    Thread ip4Thread = new Thread(new IPv4InputHandler(this, dtlsListener, ipv6InputHandler), "IPv4 consumer");
+    Thread ip4Thread = new Thread(new IPv4InputHandler(this, dtlsListener, ipv6InputHandler, expiryPeriod), "IPv4 consumer");
     Thread ip6Thread = new Thread(ipv6InputHandler, "IPv6 consumer");
     ip4Thread.setDaemon(true);
     ip6Thread.setDaemon(true);
@@ -335,24 +341,22 @@ public class TransporterStart implements DTLSData {
    */
   private void exitHandler() {
     logger.info("Exit handler activated, closing all sessions");
-    Iterator<Inet6Address> addresses = dtlsHash.keySet().iterator();
-    while (addresses.hasNext())  {
-      Inet6Address address = addresses.next();
+    for (ServerTransportTupel serverTransport: getAll()) {
       try {
-        getServer(address).close();
-        addresses.remove();
-      } catch (IOException e) {
-        logger.warning(() -> "Shutting down session " + address.toString() + " failed.");
+        serverTransport.getTransport().close();
+      } catch (Exception e) {
+        logger.warning(() -> "Shutting down session " + serverTransport.getTransport() + " failed.");
       }
     }
+    dtlsHash.clear();
   }
 
   /* (non-Javadoc)
    * @see de.flyingsnail.ipv6backwardserver.transporter.AyiyaData#getServer(java.net.Inet6Address)
    */
   @Override
-  public DTLSTransport getServer(@NonNull Inet6Address sender) throws NoSuchObjectException {
-    DTLSTransport matching = dtlsHash.get(sender);
+  public @NonNull ServerTransportTupel getServerTransport(@NonNull Inet6Address sender) throws NoSuchObjectException {
+    ServerTransportTupel matching = dtlsHash.get(sender);
     if (matching == null)
       throw new NoSuchObjectException("No DTLSTransport object for address " + sender);
     return matching;
@@ -363,17 +367,17 @@ public class TransporterStart implements DTLSData {
   }
 
   @Override
-  public Iterable<DTLSTransport> getAll() {
+  public Iterable<ServerTransportTupel> getAll() {
     return dtlsHash.values();
   }
 
   @Override
-  public void putServer(@NonNull Inet6Address sender, @NonNull DTLSTransport dtls) {
-    dtlsHash.put(sender, dtls);
+  public void putServerAndTransport(@NonNull Inet6Address sender, @NonNull IPv6DTlsServer server, @NonNull DTLSTransport dtls) {
+    dtlsHash.put(sender, new ServerTransportTupel(server, dtls));
   }
 
   @Override
-  public DTLSTransport removeServer(@NonNull Inet6Address sender) {
+  public ServerTransportTupel removeServerTransport(@NonNull Inet6Address sender) {
     return dtlsHash.remove(sender);
   }
 }

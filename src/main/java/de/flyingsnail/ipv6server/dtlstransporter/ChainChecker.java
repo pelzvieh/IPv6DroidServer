@@ -39,6 +39,7 @@ import java.security.cert.X509CertSelector;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Date;
 import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
@@ -98,16 +99,19 @@ class ChainChecker {
    * @param chain a TlsCertificate[] starting with the certificate of the peer, ending with the CA
    * @throws IOException in case of syntactical errors in the certificates presented
    * @throws TlsFatalAlert in case of unverifyable trust chain.
+   * @return the Date when the certificate expires.
    */
-  public void checkChain(TlsCertificate[] chain) throws IOException, TlsFatalAlert {
+  public Date checkChain(TlsCertificate[] chain) throws IOException, TlsFatalAlert {
     final X509CertSelector target = new X509CertSelector();
     final List<X509Certificate> intermediates = new ArrayList<X509Certificate>(chain.length);
+    Date expire;
     // some pointless conversions required
     try {
       X509Certificate clientStdCert = (X509Certificate)certificateFactory.generateCertificate(
           new ByteArrayInputStream(chain[0].getEncoded())
       );
       target.setCertificate(clientStdCert);
+      expire = clientStdCert.getNotAfter();
 
       for (TlsCertificate interCert: chain) {
         intermediates.add((X509Certificate)certificateFactory.generateCertificate(
@@ -141,6 +145,7 @@ class ChainChecker {
 
       throw new TlsFatalAlert (AlertDescription.unknown_ca, e);
     }
+    return expire;
   }
 
 }
