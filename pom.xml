@@ -17,7 +17,7 @@
     <!-- dependency versions -->
     <javaee-api-version>8.0.1-b5</javaee-api-version>
     <junit-version>4.13.1</junit-version>
-    <bouncycastle-version>1.76</bouncycastle-version>
+    <bouncycastle-version>1.78</bouncycastle-version>
     <lxtunchannel-version>1.0.0</lxtunchannel-version>
     <jna-version>5.9.0</jna-version>
   </properties>  
