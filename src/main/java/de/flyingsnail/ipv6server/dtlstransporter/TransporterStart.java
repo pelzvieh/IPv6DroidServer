@@ -157,7 +157,7 @@ public class TransporterStart implements DTLSData {
       System.setProperty("org.bouncycastle.x509.enableCRLDP", "true");
 
       // construct our instance      
-      TransporterStart ts = passThrough ? new TransporterStart() : new TransporterStart(input, output);
+      TransporterStart ts = passThrough ? new TransporterStart(input, output) : new TransporterStart();
       
       // Setup signal handler for USR2 to print summary of tunnels to logfile on kill -USR1
       Signal.handle(new Signal("USR2"), (Signal sig) ->
